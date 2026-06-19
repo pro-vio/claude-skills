@@ -1,0 +1,11 @@
+{
+  "name": "claude-skills",
+  "owner": { "name": "Viorel Proteasa" },
+  "plugins": [
+    {
+      "name": "zotero-citations",
+      "source": "./plugins/zotero-citations",
+      "description": "Zotero-backed live in-text citations + auto References (pandoc + citeproc, any CSL) and a custom chronological Legislation & case-law list."
+    }
+  ]
+}

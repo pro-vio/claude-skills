@@ -1,0 +1,6 @@
+{
+  "name": "zotero-citations",
+  "description": "Live in-text citations + auto References from Zotero (pandoc + citeproc, any CSL style) plus a custom chronological Legislation & case-law list that CSL cannot express. Also fixes mis-rendering Zotero items (ALL-CAPS titles, swapped place/publisher, reprint dates) via direct DB edits.",
+  "version": "1.0.0",
+  "author": { "name": "Viorel Proteasa" }
+}
