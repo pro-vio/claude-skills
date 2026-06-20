@@ -1,11 +1,18 @@
 {
   "name": "claude-skills",
-  "owner": { "name": "Viorel Proteasa" },
+  "owner": {
+    "name": "Viorel Proteasa"
+  },
   "plugins": [
     {
       "name": "zotero-citations",
       "source": "./plugins/zotero-citations",
       "description": "Zotero-backed live in-text citations + auto References (pandoc + citeproc, any CSL) and a custom chronological Legislation & case-law list."
+    },
+    {
+      "name": "scriere",
+      "source": "./plugins/scriere",
+      "description": "Edit a Word (.docx) manuscript as tracked changes (author \"Claude\") via a reliable lxml round-trip — suggestions the author accepts/rejects, plus threaded comment replies, footnotes, and a voice-preserving proofreading pass."
     }
   ]
 }
