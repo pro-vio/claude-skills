@@ -59,8 +59,13 @@ d.report()                       # prints OK/MISS per edit
 d.repack("Manuscript_track.docx")
 ```
 
-Then **always validate** (next section). Each method returns `True`/`False` and logs `OK`/`MISS`;
-a `MISS` almost always means the needle is split across runs — see `references/ooxml-track-changes.md`.
+Then **always validate** (next section). Each method returns `True`/`False` and logs `OK`/`MISS`
+(`OK … (span)` = matched across runs). `replace`/`delete`/`insert_after_text` try a single direct run
+first, then fall back to a **run-spanning** match across consecutive plain runs, with ASCII↔typographic
+quote/space/dash normalization — so a plain-text needle still hits the document's `’ “ ” – —` or NBSP.
+A `MISS` now almost always means the anchor sits **inside the user's own `w:ins`** (use
+`insert_after_ins` / `fix_in_ins`) or the phrase is interrupted by a tracked change / hyperlink —
+see `references/ooxml-track-changes.md`.
 
 ## Workflow — implementing a reviewer's comments
 
@@ -125,9 +130,12 @@ returns to it. Surface divergence between them — don't paper over it.
 author has closed. Suggest structural/conceptual changes and wait for a yes; apply small wording
 directly. (This mirrors the project's `CONVENTII.md`.)
 
-**D. Match on a unique single-run substring.** Word splits text into runs unpredictably; the helper
-edits within one direct run. A `MISS` means the phrase spans runs — shorten the needle or anchor on
-the user's `w:ins`. Copy typographic apostrophes/quotes exactly.
+**D. Match on a unique substring; the helper handles run splits for you.** Word splits text into runs
+unpredictably, so the helper tries a single direct run first, then spans consecutive plain runs, and
+normalizes ASCII↔typographic quotes/spaces/dashes — you no longer have to copy `’ “ ” –` exactly or
+pre-shorten needles. Keep the needle **unique** in the paragraph (it edits the first match). A `MISS`
+means the anchor is inside the user's own `w:ins` (use `insert_after_ins` / `fix_in_ins`) or is broken
+by a tracked change / hyperlink mid-phrase.
 
 **E. Preserve the voice.** In proofreading, change only what is objectively wrong. Style, rhythm,
 and register belong to the author; uncertainty resolves toward leaving the text alone.

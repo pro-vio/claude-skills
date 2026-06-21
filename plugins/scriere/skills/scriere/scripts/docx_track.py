@@ -20,10 +20,14 @@ Typical use:
     # then ALWAYS: validate_docx.py Manuscript_track.docx
 
 Design notes / gotchas live in references/ooxml-track-changes.md — read it before
-extending. Key ones: text is matched inside a SINGLE direct run (Word splits runs
-arbitrarily; if a match misses, the phrase is split across runs — shorten the needle or
-target the user's w:ins with insert_after_ins). Apostrophes in the source are usually
-typographic ’ not ASCII '.
+extending. Matching: `replace`/`delete`/`insert_after_text` try a SINGLE direct run
+first, then fall back to a RUN-SPANNING match across consecutive direct runs (Word
+splits a phrase across runs unpredictably) with length-preserving normalization of
+typographic vs ASCII quotes/apostrophes/spaces/dashes — so a needle written with plain
+' " - or space still hits the document's ’ “ ” – or non-breaking space. The fallback
+never crosses a w:ins/w:del/hyperlink boundary (it only joins plain runs), so tracked
+content is left intact. If a match still misses, the anchor sits inside the user's own
+w:ins — use insert_after_ins / fix_in_ins instead.
 """
 import sys, os, copy, zipfile
 from pathlib import Path
@@ -44,6 +48,18 @@ def w15(t): return f"{{{W15}}}{t}"
 def w16(t): return f"{{{W16}}}{t}"
 
 _PARSER = etree.XMLParser(remove_blank_text=False)
+
+# Length-preserving normalization (each mapping is 1 char -> 1 char, so offsets in the
+# normalized string map straight back onto the original runs). Lets a needle typed with
+# ASCII ' " - or a plain space match the document's typographic ’ ‘ “ ” – — or NBSP.
+_NORM = {
+    " ": " ",                      # non-breaking space
+    "’": "'", "‘": "'",        # ’ ‘
+    "“": '"', "”": '"',        # “ ”
+    "–": "-", "—": "-",        # – —
+}
+def _norm(s):
+    return "".join(_NORM.get(c, c) for c in s)
 
 
 class Docx:
@@ -106,6 +122,64 @@ class Docx:
             t.set(XS, "preserve")
         return r
 
+    def _mk_t_like(self, src, text):
+        """A plain run carrying `text` but cloning `src`'s formatting (w:rPr), so a kept
+        prefix/suffix fragment keeps the original run's italics/style instead of going bare."""
+        r = etree.Element(w("r"))
+        rpr = src.find(w("rPr"))
+        if rpr is not None:
+            r.append(copy.deepcopy(rpr))
+        t = etree.SubElement(r, w("t")); t.text = text
+        if text and (text[0] == " " or text[-1] == " "):
+            t.set(XS, "preserve")
+        return r
+
+    @staticmethod
+    def _pure_text_run(r):
+        """True iff the run carries ONLY text (w:rPr + w:t) — no w:tab/w:br/w:drawing/
+        w:footnoteReference etc. The span fallback rebuilds runs as plain text, so it must
+        refuse non-pure runs: otherwise collapsing/splitting one would silently drop that
+        structural content. A refused match falls through to a visible MISS instead."""
+        return all(ch.tag in (w("rPr"), w("t")) for ch in r)
+
+    @staticmethod
+    def _run_groups(para):
+        """Maximal stretches of CONSECUTIVE direct w:r children. Boundaries = anything
+        else (w:ins/w:del/hyperlink/...), so a span match never reaches across tracked
+        content or a hyperlink."""
+        groups, cur = [], []
+        for ch in para:
+            if ch.tag == w("r"):
+                cur.append(ch)
+            elif cur:
+                groups.append(cur); cur = []
+        if cur:
+            groups.append(cur)
+        return groups
+
+    def _locate_in_group(self, runs, needle):
+        """Find `needle` across the concatenated text of `runs` (one group). Returns
+        (ra, oa, rb, ob, texts, real) where ra/oa = first run + offset, rb/ob = last run +
+        exclusive end offset, texts = per-run text, real = the actual document substring
+        (denormalized, so a deletion shows the real ’/–/NBSP characters). Or None."""
+        texts = [self._rtext(r) for r in runs]
+        concat = "".join(texts)
+        i = _norm(concat).find(_norm(needle))
+        if i < 0:
+            return None
+        j = i + len(needle); real = concat[i:j]
+        bounds, off = [], 0
+        for t in texts:
+            bounds.append(off); off += len(t)
+        def loc(pos):
+            for k in range(len(runs)):
+                if bounds[k] <= pos < bounds[k] + len(texts[k]):
+                    return k, pos - bounds[k]
+            return len(runs) - 1, len(texts[-1])
+        ra, oa = loc(i)
+        rb, ob = loc(j - 1); ob += 1
+        return ra, oa, rb, ob, texts, real
+
     def _ins(self, text):
         e = etree.Element(w("ins"))
         e.set(w("id"), self._nid()); e.set(w("author"), self.author); e.set(w("date"), self.date)
@@ -121,40 +195,105 @@ class Docx:
 
     # ---------- tracked text edits (on document.xml) ----------
     def replace(self, old, new, label=""):
-        """Tracked replace: in the direct run containing `old`, del `old` + ins `new`.
-        `new=""` makes it a pure tracked deletion."""
+        """Tracked replace: del `old` + ins `new` (`new=""` => pure tracked deletion).
+        Tries a single direct run first, then a run-spanning fallback (Word often splits a
+        phrase across runs) with quote/space/dash normalization."""
+        if self._replace_in_run(old, new):
+            self.log.append(f"OK   {label or 'replace'}"); return True
+        if self._replace_span(old, new):
+            self.log.append(f"OK   {label or 'replace'} (span)"); return True
+        self.log.append(f"MISS {label or 'replace'}  («{old[:40]}»)"); return False
+
+    def _replace_in_run(self, old, new):
         for para in self._paras():
             for r in para.findall(w("r")):
                 txt = self._rtext(r)
                 if old in txt:
+                    if not self._pure_text_run(r):
+                        continue   # run also holds a footnote ref / drawing / break -> don't flatten
+
                     i = txt.find(old); pre, suf = txt[:i], txt[i + len(old):]
                     repl = []
-                    if pre: repl.append(self._mk_t(pre))
+                    if pre: repl.append(self._mk_t_like(r, pre))
                     repl.append(self._del(old))
                     if new: repl.append(self._ins(new))
-                    if suf: repl.append(self._mk_t(suf))
+                    if suf: repl.append(self._mk_t_like(r, suf))
                     idx = list(para).index(r); para.remove(r)
                     for k, e in enumerate(repl): para.insert(idx + k, e)
-                    self.log.append(f"OK   {label or 'replace'}"); return True
-        self.log.append(f"MISS {label or 'replace'}  («{old[:40]}»)"); return False
+                    return True
+        return False
+
+    def _replace_span(self, old, new):
+        for para in self._paras():
+            for runs in self._run_groups(para):
+                loc = self._locate_in_group(runs, old)
+                if not loc:
+                    continue
+                ra, oa, rb, ob, texts, real = loc
+                if not all(self._pure_text_run(r) for r in runs[ra:rb + 1]):
+                    continue   # structural content in the span -> don't collapse; visible MISS
+                pre, suf = texts[ra][:oa], texts[rb][ob:]
+                repl = []
+                if pre: repl.append(self._mk_t_like(runs[ra], pre))
+                repl.append(self._del(real))
+                if new: repl.append(self._ins(new))
+                if suf: repl.append(self._mk_t_like(runs[rb], suf))
+                idx = list(para).index(runs[ra])
+                for r in runs[ra:rb + 1]:
+                    para.remove(r)
+                for k, e in enumerate(repl): para.insert(idx + k, e)
+                return True
+        return False
 
     def delete(self, text, label=""):
         """Tracked deletion of `text`."""
         return self.replace(text, "", label or "delete")
 
     def insert_after_text(self, prefix, text, label=""):
-        """Insert `text` as a tracked insertion right after `prefix` (within its direct run)."""
+        """Insert `text` as a tracked insertion right after `prefix`. Single direct run
+        first, then a run-spanning fallback (same normalization as replace)."""
+        if self._insert_after_in_run(prefix, text):
+            self.log.append(f"OK   {label or 'insert_after_text'}"); return True
+        if self._insert_after_span(prefix, text):
+            self.log.append(f"OK   {label or 'insert_after_text'} (span)"); return True
+        self.log.append(f"MISS {label or 'insert_after_text'}  (prefix «{prefix[:40]}»)"); return False
+
+    def _insert_after_in_run(self, prefix, text):
         for para in self._paras():
             for r in para.findall(w("r")):
                 txt = self._rtext(r)
                 if prefix in txt:
+                    if not self._pure_text_run(r):
+                        continue   # run also holds a footnote ref / drawing / break -> don't flatten
+
                     i = txt.find(prefix) + len(prefix); pre, suf = txt[:i], txt[i:]
-                    repl = [self._mk_t(pre), self._ins(text)]
-                    if suf: repl.append(self._mk_t(suf))
+                    repl = [self._mk_t_like(r, pre), self._ins(text)]
+                    if suf: repl.append(self._mk_t_like(r, suf))
                     idx = list(para).index(r); para.remove(r)
                     for k, e in enumerate(repl): para.insert(idx + k, e)
-                    self.log.append(f"OK   {label or 'insert_after_text'}"); return True
-        self.log.append(f"MISS {label or 'insert_after_text'}  (prefix «{prefix[:40]}»)"); return False
+                    return True
+        return False
+
+    def _insert_after_span(self, prefix, text):
+        # Split only the LAST run of the prefix span at the insertion point; runs holding
+        # earlier parts of the prefix stay untouched.
+        for para in self._paras():
+            for runs in self._run_groups(para):
+                loc = self._locate_in_group(runs, prefix)
+                if not loc:
+                    continue
+                _ra, _oa, rb, ob, texts, _real = loc
+                if not self._pure_text_run(runs[rb]):
+                    continue   # would drop structural content when split; visible MISS
+                head, tail = texts[rb][:ob], texts[rb][ob:]
+                repl = []
+                if head: repl.append(self._mk_t_like(runs[rb], head))
+                repl.append(self._ins(text))
+                if tail: repl.append(self._mk_t_like(runs[rb], tail))
+                idx = list(para).index(runs[rb]); para.remove(runs[rb])
+                for k, e in enumerate(repl): para.insert(idx + k, e)
+                return True
+        return False
 
     def insert_after_ins(self, contains, text, label=""):
         """Insert a NEW tracked insertion right after the USER's w:ins run containing `contains`.

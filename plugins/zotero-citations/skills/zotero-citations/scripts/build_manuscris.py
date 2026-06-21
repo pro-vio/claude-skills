@@ -22,13 +22,17 @@ Why the bulk csljson endpoint (not Better BibTeX item.export / item.search):
 
 Usage:
   python build_manuscris.py <manuscript.md> [--csl <style>] [--out <file>]
-                            [--user-id N] [--to <pandoc-format>]
+                            [--user-id N] [--to <pandoc-format>] [--check]
   --csl     style name from ~/Zotero/styles (apa, ieee, ...) or a .csl path.
             Default = the chicago-author-date.csl bundled with this skill.
   --out     output path. Default = <md_dir>/<md_stem>.html
   --to      pandoc output format (html, docx, ...). Inferred from --out extension.
   --user-id Zotero library user id for the API URL. Default = env ZOTERO_USER_ID
             or auto-detect from zotero.sqlite (see zot.detect_user_id).
+  --check   FAST resolution check: extract keys, hit Zotero, print which resolve and
+            which are missing, then exit — NO pandoc render, NO file written. Use this
+            in the edit loop ("did my new key resolve?"); skips the slow render entirely.
+            Exit code 0 if every cited key resolves, 1 if any is missing.
 """
 import re, sys, os, json, subprocess, urllib.request
 
@@ -49,7 +53,7 @@ ZOTERO_STYLES = os.path.expanduser("~/Zotero/styles")
 CITE_RE = re.compile(r'(?<![\w@])-?@([^\s\]\[;,.]+)')
 
 def parse_args(argv):
-    a = {"md": None, "csl": None, "out": None, "user_id": None, "to": None}
+    a = {"md": None, "csl": None, "out": None, "user_id": None, "to": None, "check": False}
     i = 0
     while i < len(argv):
         t = argv[i]
@@ -57,6 +61,7 @@ def parse_args(argv):
         elif t == "--out": a["out"] = argv[i+1]; i += 2
         elif t == "--user-id": a["user_id"] = argv[i+1]; i += 2
         elif t == "--to": a["to"] = argv[i+1]; i += 2
+        elif t == "--check": a["check"] = True; i += 1
         elif a["md"] is None: a["md"] = t; i += 1
         else: i += 1
     if not a["md"]:
@@ -88,7 +93,6 @@ def main():
     stem = os.path.splitext(os.path.basename(md))[0]
     out = a["out"] or os.path.join(md_dir, stem + ".html")
     to = a["to"] or os.path.splitext(out)[1].lstrip(".") or "html"
-    csl = resolve_csl(a["csl"])
     refs = os.path.join(md_dir, f".{stem}.refs.json")
 
     uid = a["user_id"] or zot.detect_user_id()
@@ -110,12 +114,19 @@ def main():
     refs_used = [by[k] for k in keys if k in by]
     got = {r["id"] for r in refs_used}
     missing = [k for k in keys if k not in got]
-    json.dump(refs_used, open(refs, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(f"    {len(got)}/{len(keys)} rezolvate.")
     if missing:
         print("    ⚠️  CHEI NEGĂSITE ÎN ZOTERO:")
         for k in missing: print(f"        @{k}")
 
+    if a["check"]:
+        # Fast path: no render, no file written — just report and exit.
+        print("\n✅ Toate cheile rezolvă." if not missing
+              else f"\n⚠️  {len(missing)} chei lipsesc (vezi mai sus).")
+        sys.exit(0 if not missing else 1)
+
+    json.dump(refs_used, open(refs, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    csl = resolve_csl(a["csl"])
     print(f"[3] pandoc --citeproc (stil: {os.path.basename(csl)}, -> {to}) ...")
     cmd = ["pandoc", md, "-o", out, "--standalone", "--citeproc",
            "--csl", csl, "--bibliography", refs,
