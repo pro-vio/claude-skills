@@ -74,8 +74,18 @@ compute the highlight rectangles read-only with PyMuPDF while Zotero is open (Zo
 CropBox-relative, bottom-left origin: `H − y`), queue them, then flush all writes in one pass with
 Zotero closed. Don't re-run a write that already succeeded — it duplicates annotations.
 
+**Child note** (summaries etc.): insert `items` (itemTypeID 1) + `itemNotes(itemID, parentItemID, note)`.
+**Write PLAIN TEXT** (blank-line paragraph breaks), NOT HTML: externally-written note HTML is
+escaped/sanitized at the next startup (wrapped in `zotero-note znv1`, tags rendered as literal text).
+Zotero converts the plain text to proper `<p>` paragraphs itself, stably.
+
 ## Gotchas
 
+- **Shutdown race:** after a graceful kill, a residual Zotero process may flush AFTER your write
+  and silently discard it. Wait until all `zotero.exe` processes AND `zotero.sqlite-journal`/`-wal`
+  are gone, write, then **verify on disk** before restarting Zotero.
+- The **local API omits annotations** from `/items/<attKey>/children` — a zero result does not mean
+  the highlights failed; check `itemAnnotations` in the DB or the Zotero reader.
 - A junk-looking attachment titled like a date (`1969-01-01…`) is usually the item's **PDF**
   (`itemAttachments.parentItemID` points to the real item) — NOT a duplicate to delete. Check first.
 - Duplicate/junk bib items do happen (mangled titles, wrong years) — verify the resolved item

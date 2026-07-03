@@ -48,12 +48,18 @@ The manuscript uses pandoc citation syntax in the body:
 
 ```
 python scripts/build_manuscris.py <manuscript.md> [--csl <style>] [--out <file.html|.docx>]
+python scripts/build_manuscris.py <manuscript.md> --check   # fast: resolve keys only, no render
 ```
 
 What it does: extract the cited keys → pull CSL-JSON for **only those keys** from Zotero (the
 standard `?format=csljson` endpoint, where `id` == the citekey) → `pandoc --citeproc`. The
 "References" list is produced automatically, so it contains **exactly what is cited** — nothing
 stale, nothing extra. The output format follows the `--out` extension (`.html`, `.docx`, …).
+
+- **`--check` = the fast edit-loop path.** Extracts keys, hits Zotero, prints which resolve and which
+  are missing, then exits — **no pandoc render, no file written** (exit 0 = all resolve, 1 = some
+  missing). Use it after adding/fixing a key to confirm it resolves; only do a full render once it's
+  green. Skips the ~1–2 s pandoc+CSL pass that dominates a "did my key land?" check.
 
 - **Swappable style:** `--csl apa` (or `ieee`, `american-sociological-association`, … from
   `~/Zotero/styles`, or a `.csl` path). Default = the bundled `references/chicago-author-date.csl`.
@@ -137,3 +143,10 @@ identifiable. The list is separate, chronological, and filtered to what's actual
 - `references/chicago-author-date.csl` — default style.
 - `references/zotero-schema.md` — DB schema, fieldIDs, and write/annotation patterns. **Read this
   before any direct database edit.**
+- `references/runtime-optimization.md` — frictionless process control (one-time permission
+  allowlist, canonical start/stop/ping command shapes, DB-write protocol, acceptance test,
+  portability checklist). Follow its canonical command shapes so the prefix-matched allow rules
+  keep working.
+- `scripts/log_perm.py` — permission-prompt monitor (hook target). At the end of each iteration,
+  review `~/.claude/perm-requests.jsonl` and propose one allowlist fix per prompt cluster — the
+  ritual is specified in `references/runtime-optimization.md` §"Accept monitor".
