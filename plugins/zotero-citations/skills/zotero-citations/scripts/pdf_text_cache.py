@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 pdf_text_cache.py — memoize extracted PDF text as a Zotero child note, keyed to
-the attachment's storageHash, so the same PDF is never re-extracted twice.
+a content hash, so the same PDF is never re-extracted twice. Uses Zotero's own
+storageHash when the attachment has one (imported stored copies); falls back
+to hashing the file ourselves for LINKED attachments, whose storageHash is
+always NULL in Zotero (see _content_hash — this is a real, previously-broken
+edge case, not a hypothetical one).
 
 Why a Zotero note and not a local file: "Zotero is the only source of truth"
 (SKILL.md principle A) — the cache then travels with the library and needs no
@@ -76,14 +80,32 @@ def _find_cache_note(attachment_item_id):
     return None
 
 
+def _content_hash(stored_hash, pdf_path):
+    """Zotero's own storageHash when available (imported stored-copy
+    attachments); for LINKED attachments storageHash is always NULL — Zotero
+    doesn't own/hash a file it doesn't manage — so fall back to hashing the
+    file ourselves. Never fall back to the literal Python None: str(None) ==
+    "None" was written into a note as 'storageHash: None' by an earlier
+    version, and a stored *string* "None" can never equal a freshly-read
+    *NoneType* None on the next check — the cache looked stale forever for
+    every linked attachment. This happened for real: 13 notes on linked
+    reference PDFs were permanently unreadable this way before the fix."""
+    if stored_hash:
+        return stored_hash
+    import hashlib
+    with open(pdf_path, "rb") as f:
+        return hashlib.md5(f.read()).hexdigest()
+
+
 def get_cached(attachment_key):
     """Extracted text if a fresh cache note exists (hash matches current
-    storageHash), else None. Read-only — works whether Zotero is open or not."""
+    content), else None. Read-only — works whether Zotero is open or not."""
     row = zot._ro().execute("SELECT itemID, storageHash FROM items JOIN itemAttachments USING(itemID) "
                              "WHERE key=?", (attachment_key,)).fetchone()
     if not row:
         raise ValueError(f"no attachment with key {attachment_key!r}")
-    item_id, current_hash = row
+    item_id, stored_hash_db = row
+    current_hash = _content_hash(stored_hash_db, zot.attachment_path(attachment_key))
     found = _find_cache_note(item_id)
     if not found:
         return None
@@ -130,7 +152,8 @@ def ensure_cached(cur, attachment_key, pdf_path):
                        "WHERE key=?", (attachment_key,)).fetchone()
     if not row:
         raise ValueError(f"no attachment with key {attachment_key!r}")
-    item_id, current_hash = row
+    item_id, stored_hash_db = row
+    current_hash = _content_hash(stored_hash_db, pdf_path)
     found = _find_cache_note_cur(cur, item_id)
     if found and found[1] == current_hash:
         return found[2], True

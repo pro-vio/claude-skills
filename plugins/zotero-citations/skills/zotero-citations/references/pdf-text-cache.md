@@ -25,6 +25,32 @@ Calling `ensure_cached` inside a fresh `write_session` on every check (skipping 
 pre-check) still avoids re-extraction, but needlessly closes Zotero even on a cache hit — always
 check `get_cached()` first, and only open the write cycle when it returns `None`.
 
+## Linked attachments: `storageHash` is always NULL — hash the file yourself
+
+Zotero attachments come in two kinds: an **imported stored copy** (file lives under
+`storage/<key>/`, Zotero computes and tracks `storageHash`) and a **linked file** (attachment
+`path` is an absolute path to a file Zotero doesn't own — e.g. a PDF still sitting in a thesis
+student's own reference folder). Zotero never computes `storageHash` for the second kind — it's
+always `NULL` in the DB, by design, not a data-quality gap to fix.
+
+The first version of this cache didn't account for that: it wrote `f"storageHash: {current_hash}"`
+straight from the DB value, and when that value was Python's `None`, the note ended up with the
+literal text `storageHash: None`. On every later check, the *string* `"None"` parsed back out of
+the note was compared against a freshly-queried *actual* `None` — and `"None" == None` is always
+`False` in Python. The cache looked permanently stale for every linked attachment, no matter how
+many times it was rewritten. This happened for real, silently, across a separate coordination
+project's reference folder (13 linked PDFs) before it was caught.
+
+The fix, in `_content_hash(stored_hash, pdf_path)`: use Zotero's `storageHash` when the attachment
+has one; otherwise compute an MD5 of the file's own bytes as the fallback content key. This needs
+`zot.attachment_path(key)` to resolve a linked attachment's absolute path (a stored-copy path is
+already the DB value; a linked path needs no `storage/<key>/` join). `get_cached` and
+`ensure_cached` both changed to route through `_content_hash` — never write the raw DB value
+(which can be `None`) into a note directly.
+
+If you're diagnosing "a command said the file wasn't cached" and the attachment in question has
+no `storage/<key>/` copy — check `itemAttachments.storageHash IS NULL` first; that's the tell.
+
 ## Batching many items in one `write_session`: never open a second connection
 
 A batch of `ensure_cached` calls **must** look up each item's existing cache note through the

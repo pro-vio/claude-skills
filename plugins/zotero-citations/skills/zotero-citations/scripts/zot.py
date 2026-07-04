@@ -197,6 +197,19 @@ def find_collection(name):
     r = _ro().execute("SELECT key, collectionID FROM collections WHERE collectionName=?", (name,)).fetchone()
     return (r[0], r[1]) if r else None
 
+def attachment_path(key):
+    """Full filesystem path for an attachment key: resolves both an imported
+    stored copy ('storage:<file>' -> storage/<key>/<file>) and a LINKED file
+    (path is already absolute — no storage/ copy, and storageHash is always
+    NULL for these, since Zotero doesn't own/hash a file it doesn't manage).
+    Read-only; works whether Zotero is open or not. None if no such attachment."""
+    r = _ro().execute("SELECT path FROM itemAttachments WHERE itemID=(SELECT itemID FROM items WHERE key=?)",
+                       (key,)).fetchone()
+    if not r or not r[0]:
+        return None
+    path = r[0]
+    return os.path.join(STORAGE, key, path[len("storage:"):]) if path.startswith("storage:") else path
+
 def _next_id(cur, col, table):
     return cur.execute(f"SELECT COALESCE(MAX({col}),0)+1 FROM {table}").fetchone()[0]
 
