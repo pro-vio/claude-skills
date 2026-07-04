@@ -25,6 +25,23 @@ Calling `ensure_cached` inside a fresh `write_session` on every check (skipping 
 pre-check) still avoids re-extraction, but needlessly closes Zotero even on a cache hit — always
 check `get_cached()` first, and only open the write cycle when it returns `None`.
 
+## Batching many items in one `write_session`: never open a second connection
+
+A batch of `ensure_cached` calls **must** look up each item's existing cache note through the
+**same cursor** the `write_session` gave you (`ensure_cached` does this internally, via
+`_find_cache_note_cur(cur, ...)`) — never through a fresh `zot._ro()` connection while a write
+transaction from an earlier item in the same loop is still open. A real run hit exactly this: 81
+items in one `write_session`, every single one failed with `database is locked`, because the
+first version of `ensure_cached` looked up existing notes via `_find_cache_note` →
+`zot.find_child_notes` → a brand-new `_ro()` connection. That's harmless for a single
+stand-alone call (no write has happened yet, so no lock exists) but breaks the moment a second
+item's lookup runs while item one's `INSERT` is still uncommitted on the write connection.
+**No data was lost** — the session's own `commit()` still "succeeded" as a no-op (nothing had
+actually been written), which is how the failure was caught: the reported `pending sync` count
+didn't match the number of items processed. One connection, for both reads and writes, for the
+whole session — the `get_cached()` stand-alone path is unaffected since it never runs inside an
+open write transaction.
+
 ## Scans: run the OCR-overlay ask-first flow before this, not instead of it
 
 `extract_pdf_text` pulls whatever text layer the PDF already has — it does **not** OCR anything.

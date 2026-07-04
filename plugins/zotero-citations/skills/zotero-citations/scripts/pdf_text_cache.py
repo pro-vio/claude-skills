@@ -103,6 +103,26 @@ def extract_pdf_text(pdf_path):
     return "\n\n".join(parts)
 
 
+def _find_cache_note_cur(cur, parent_item_id):
+    """Same lookup as _find_cache_note, but over the CALLER's own cursor —
+    not a fresh zot._ro() connection. Required inside ensure_cached: a second
+    connection opened mid-write-transaction (e.g. on item 2+ of a batched
+    write_session, once item 1's INSERT has opened a transaction on the main
+    connection) hits 'database is locked' against SQLite's own writer lock.
+    Confirmed: a batch of 81 ensure_cached calls in one write_session failed
+    ALL 81 with this error before the fix — the write_session's own commit()
+    still "succeeded" (as a no-op, nothing had actually been written), so no
+    data was lost, but nothing was cached either. One connection per session
+    for both reads and writes, always, is the only safe pattern here."""
+    for note_id, note_text in cur.execute(
+            "SELECT itemID, note FROM items JOIN itemNotes USING(itemID) WHERE parentItemID=?",
+            (parent_item_id,)).fetchall():
+        parsed = _parse_cache_note(note_text)
+        if parsed:
+            return note_id, parsed[0], parsed[1]
+    return None
+
+
 def ensure_cached(cur, attachment_key, pdf_path):
     """Inside a zot.write_session: return (text, was_cached). Extracts and
     writes the cache note only when there is no fresh cache already."""
@@ -111,7 +131,7 @@ def ensure_cached(cur, attachment_key, pdf_path):
     if not row:
         raise ValueError(f"no attachment with key {attachment_key!r}")
     item_id, current_hash = row
-    found = _find_cache_note(item_id)
+    found = _find_cache_note_cur(cur, item_id)
     if found and found[1] == current_hash:
         return found[2], True
     text = extract_pdf_text(pdf_path)
