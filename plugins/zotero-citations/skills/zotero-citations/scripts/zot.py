@@ -61,15 +61,23 @@ def detect_user_id():
         pass
     return None
 
+# A trashed item stays in `items`/`itemAttachments` with all its rows intact — Zotero
+# soft-deletes via this junction table, not by removing the row. Any read query that
+# means "active library content" must exclude it explicitly, or trashed parents AND
+# trashed attachments (independently — an attachment can be trashed while its parent
+# is not, e.g. a scan superseded by a text-native duplicate) silently reappear as if live.
+NOT_TRASHED = "itemID NOT IN (SELECT itemID FROM deletedItems)"
+
 def find(query):
-    """Find items by title/nameOfAct/creator. -> [(itemKey, title, attachKey, pdfPath)]."""
+    """Find items by title/nameOfAct/creator. -> [(itemKey, title, attachKey, pdfPath)].
+    Excludes trashed items/attachments (see NOT_TRASHED)."""
     c = _ro().cursor()
-    rows = c.execute("""
+    rows = c.execute(f"""
       SELECT DISTINCT i.itemID, i.key,
         (SELECT idv.value FROM itemData d JOIN itemDataValues idv ON idv.valueID=d.valueID
            JOIN fields f ON f.fieldID=d.fieldID WHERE d.itemID=i.itemID
            AND f.fieldName IN ('title','nameOfAct') LIMIT 1) t
-      FROM items i WHERE i.itemTypeID NOT IN (1,3)
+      FROM items i WHERE i.itemTypeID NOT IN (1,3) AND i.{NOT_TRASHED}
         AND (EXISTS(SELECT 1 FROM itemData d JOIN itemDataValues v ON v.valueID=d.valueID
                     WHERE d.itemID=i.itemID AND v.value LIKE ?)
              OR EXISTS(SELECT 1 FROM itemCreators ic JOIN creators cr ON cr.creatorID=ic.creatorID
@@ -77,9 +85,10 @@ def find(query):
     """, (f"%{query}%", f"%{query}%")).fetchall()
     out = []
     for iid, key, title in rows:
-        att = c.execute("""SELECT ai.key, ia.path FROM itemAttachments ia
+        att = c.execute(f"""SELECT ai.key, ia.path FROM itemAttachments ia
                            JOIN items ai ON ai.itemID=ia.itemID
-                           WHERE ia.parentItemID=? AND ia.contentType='application/pdf' LIMIT 1""",
+                           WHERE ia.parentItemID=? AND ia.contentType='application/pdf'
+                             AND ai.{NOT_TRASHED} LIMIT 1""",
                         (iid,)).fetchone()
         ak = att[0] if att else None
         path = os.path.join(STORAGE, ak, att[1][len('storage:'):]) if att else None

@@ -35,6 +35,24 @@ The scripts that write also do this, but make your own checkpoint for ad-hoc edi
 - `itemAnnotations(itemID, parentItemID, type, authorName, text, comment, color, pageLabel, sortIndex, position, isExternal)`.
 - `deletedItems(itemID, dateDeleted)` — inserting here = move to **trash** (reversible, preferred over hard delete).
 
+## Trashed items still appear in every table — filter them out explicitly
+
+A trashed item is **not** removed from `items`/`itemAttachments`/`itemData` — it stays exactly as
+it was, plus a row in `deletedItems`. Any read query meant to reflect "active library content"
+(finding a PDF to open, listing an item's attachments, checking for duplicates) must exclude it,
+or a trashed scan/duplicate silently reappears as if it were live. Trashing is also **per-item,
+independently** — a parent can be active while one of its attachments is trashed (e.g. a scan
+superseded by a text-native duplicate with highlights, the parent record kept). Always check the
+specific row you're reading, not just its parent.
+
+```sql
+-- append to any items/itemAttachments query that means "currently in the library"
+AND itemID NOT IN (SELECT itemID FROM deletedItems)
+```
+
+`zot.py` exposes this as `zot.NOT_TRASHED` (an f-string-able clause) and `zot.find()` already
+applies it to both the item and its attachment lookup.
+
 ## itemTypeID (common)
 
 `1` = note · `3` = attachment · `36` = statute. Use `SELECT itemTypeID FROM itemTypes WHERE typeName=?`
@@ -111,3 +129,7 @@ Zotero converts the plain text to proper `<p>` paragraphs itself, stably.
 - Duplicate/junk bib items do happen (mangled titles, wrong years) — verify the resolved item
   (author + year + title) before citing or editing; fuzzy lookups can hit the wrong one.
 - `place`/`publisher` are easy to enter swapped → check rendered output, not just the field.
+- **Trashed items don't disappear from the tables** — an `INSERT OR IGNORE` into `deletedItems`
+  can silently no-op if the item was already trashed (PK conflict on `itemID`), which is itself
+  a useful tell that it was trashed earlier than you thought. See "Trashed items still appear in
+  every table" above — apply `zot.NOT_TRASHED` to any read query over item/attachment tables.
