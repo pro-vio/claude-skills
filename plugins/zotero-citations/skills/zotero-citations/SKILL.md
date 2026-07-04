@@ -102,6 +102,19 @@ sort chronologically and deterministically → (with `--write`) replace the
 - `--source local` reads a JSON mirror with the same logic — use it to preview offline (Zotero
   closed) and to **check parity** against the live `zotero` source before writing.
 
+## Optional: OCR overlay for scanned PDFs
+
+Some attachments are image-only scans (no extractable text) — every read either extracts
+nothing or costs vision tokens. Burning a permanent, invisible OCR text layer fixes this once,
+but it touches the actual library file, so **always ask first — never trigger it silently**.
+
+When about to read a Zotero PDF and it turns out to be a scan (`ocr_overlay.detect_scan`),
+stop and present the tradeoff: a rough time estimate for a one-time OCR overlay
+(`ocr_overlay.estimate` — local compute, no API cost) vs. the rough token cost of reading it
+via vision *this time, and every time after*, since the file stays unchanged if declined. Only
+run `overlay_pdf` on explicit agreement. Full ask-first script, verification steps, and the
+file-replace + DB-update recipe: `references/ocr-overlay.md`.
+
 ## Working principles (why this setup)
 
 These are the lessons that make the pipeline robust. Follow them; they prevent the classic failures.
@@ -156,6 +169,10 @@ identifiable. The list is separate, chronological, and filtered to what's actual
   `write_session` ingest recipe. **Read this before any direct database edit.**
 - `references/ro-legislation-fetch.md` — where to actually download Romanian statute text
   (cdep.ro works; just.ro doesn't scrape; monitoruljuridic/lege5 are paywalled).
+- `scripts/ocr_overlay.py` — scan detection (`detect_scan`), time/token tradeoff estimate
+  (`estimate`), and the invisible-text-layer overlay (`overlay_pdf`) for scanned PDFs.
+- `references/ocr-overlay.md` — the ask-first protocol for OCR overlay: when to offer it, what
+  to ask, verification (0-pixel-diff check), and the file-replace + DB-update recipe.
 - `references/runtime-optimization.md` — frictionless process control (one-time permission
   allowlist, canonical start/stop/ping command shapes, DB-write protocol, acceptance test,
   portability checklist). Follow its canonical command shapes so the prefix-matched allow rules
