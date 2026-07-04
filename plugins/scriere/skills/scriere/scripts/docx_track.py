@@ -13,6 +13,7 @@ Typical use:
     d.insert_after_text("as outlined", " (Sandler 2015)", "cite")
     d.insert_after_ins("value sym", " (Olson [1965] 2003)", "cite after user ins")
     d.set_heading("Exploitation of the largest", 3, "promote to H3")
+    d.add_comment("its unique anchor text", "Reviewer note.", "comment", occurrence="first")
     d.reply_to_comment(13, "Inserted (Sandler 2015, 190).", "reply #13")
     d.add_footnote("Opinia Timișoarei", footnote_xml_runs, "press footnote")
     d.save()
@@ -110,7 +111,14 @@ class Docx:
         return str(self._id)
 
     def _paras(self):
-        return self.body.findall(w("p"))
+        # ALL paragraphs under the body — including those nested inside w:sdt content
+        # controls (Google Docs exports bury most paragraphs there) and table cells.
+        # findall(w:p) only saw direct children and silently missed both.
+        return list(self.body.iter(w("p")))
+
+    @staticmethod
+    def _para_text(para):
+        return "".join(t.text or "" for t in para.iter(w("t")))
 
     @staticmethod
     def _rtext(r):
@@ -337,6 +345,103 @@ class Docx:
                     if el.tag != w("pPrChange"): inner.append(copy.deepcopy(el))
                 self.log.append(f"OK   {label or 'set_heading'}"); return True
         self.log.append(f"MISS {label or 'set_heading'}  («{needle[:40]}»)"); return False
+
+    # ---------- new anchored comments ----------
+    def _ensure_comment_parts(self):
+        """Create word/comments.xml + word/commentsExtended.xml (with content-type
+        overrides and document rels) when the document has no comments yet."""
+        wdir = self.root / "word"
+        NSMAP = {"w": W, "w14": W14, "w15": W15}
+        made = []
+        if not (wdir / "comments.xml").exists() and "comments.xml" not in self._trees:
+            self._trees["comments.xml"] = etree.ElementTree(etree.Element(w("comments"), nsmap=NSMAP))
+            made.append(("comments.xml",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml",
+                         "http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments"))
+        if not (wdir / "commentsExtended.xml").exists() and "commentsExtended.xml" not in self._trees:
+            self._trees["commentsExtended.xml"] = etree.ElementTree(etree.Element(w15("commentsEx"), nsmap=NSMAP))
+            made.append(("commentsExtended.xml",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml",
+                         "http://schemas.microsoft.com/office/2011/relationships/commentsExtended"))
+        if not made:
+            return
+        CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+        ct_path = self.root / "[Content_Types].xml"
+        ct = etree.parse(str(ct_path), _PARSER)
+        for fn, ctype, _ in made:
+            if not any(o.get("PartName") == f"/word/{fn}" for o in ct.getroot().findall(f"{{{CT}}}Override")):
+                o = etree.SubElement(ct.getroot(), f"{{{CT}}}Override")
+                o.set("PartName", f"/word/{fn}"); o.set("ContentType", ctype)
+        ct.write(str(ct_path), xml_declaration=True, encoding="UTF-8", standalone=True)
+        R = "http://schemas.openxmlformats.org/package/2006/relationships"
+        rels_path = wdir / "_rels" / "document.xml.rels"
+        rels = etree.parse(str(rels_path), _PARSER)
+        nums = [int(i[3:]) for i in (r_.get("Id") or "" for r_ in rels.getroot())
+                if i.startswith("rId") and i[3:].isdigit()]
+        nxt = max(nums or [0])
+        for k, (fn, _, rtype) in enumerate(made, 1):
+            r_ = etree.SubElement(rels.getroot(), f"{{{R}}}Relationship")
+            r_.set("Id", f"rId{nxt + k}"); r_.set("Type", rtype); r_.set("Target", fn)
+        rels.write(str(rels_path), xml_declaration=True, encoding="UTF-8", standalone=True)
+
+    def add_comment(self, anchor, text, label="", occurrence="first"):
+        """New top-level comment (author = self.author) anchored on the PARAGRAPH that
+        contains `anchor` (same quote/space/dash normalization as replace). Paragraph-level
+        markers — the comment covers the whole paragraph, which is what a reviewer comment
+        wants. TOC paragraphs are skipped when a non-TOC match exists; occurrence='last'
+        picks the last match (e.g. when the anchor is a heading that also appears in the
+        TOC as plain text). Creates the comment parts if the document has none."""
+        matches = [p for p in self._paras() if _norm(anchor) in _norm(self._para_text(p))]
+        def is_toc(p):
+            ps = p.find(w("pPr") + "/" + w("pStyle"))
+            return ps is not None and (ps.get(w("val")) or "").upper().startswith("TOC")
+        non_toc = [p for p in matches if not is_toc(p)]
+        if non_toc:
+            matches = non_toc
+        if not matches:
+            self.log.append(f"MISS {label or 'comment'}  («{anchor[:40]}»)"); return False
+        para = matches[-1] if occurrence == "last" else matches[0]
+
+        self._ensure_comment_parts()
+        cr = self._tree("comments.xml").getroot()
+        existing = [int(c.get(w("id"))) for c in cr.findall(w("comment"))
+                    if (c.get(w("id")) or "").lstrip("-").isdigit()]
+        if existing:
+            self._id = max(self._id, max(existing))
+        cid = self._nid()
+        para_id = f"{(0x32000000 + int(cid)) & 0xFFFFFFFF:08X}"
+
+        # body: paragraph-level markers + reference run
+        ppr = para.find(w("pPr"))
+        start = list(para).index(ppr) + 1 if ppr is not None else 0
+        cs = etree.Element(w("commentRangeStart")); cs.set(w("id"), cid)
+        para.insert(start, cs)
+        ce = etree.Element(w("commentRangeEnd")); ce.set(w("id"), cid)
+        para.append(ce)
+        rr = etree.Element(w("r")); rpr = etree.SubElement(rr, w("rPr"))
+        rs = etree.SubElement(rpr, w("rStyle")); rs.set(w("val"), "CommentReference")
+        cref = etree.SubElement(rr, w("commentReference")); cref.set(w("id"), cid)
+        para.append(rr)
+
+        # comments.xml: the comment body
+        c = etree.SubElement(cr, w("comment"))
+        c.set(w("id"), cid); c.set(w("author"), self.author)
+        c.set(w("date"), self.date); c.set(w("initials"), self.initials)
+        p = etree.SubElement(c, w("p")); p.set(w14("paraId"), para_id)
+        pp = etree.SubElement(p, w("pPr"))
+        ps = etree.SubElement(pp, w("pStyle")); ps.set(w("val"), "CommentText")
+        r1 = etree.SubElement(p, w("r")); r1p = etree.SubElement(r1, w("rPr"))
+        r1s = etree.SubElement(r1p, w("rStyle")); r1s.set(w("val"), "CommentReference")
+        etree.SubElement(r1, w("annotationRef"))
+        r2 = etree.SubElement(p, w("r"))
+        t = etree.SubElement(r2, w("t")); t.text = text
+
+        # commentsExtended.xml: top-level (no parent), not done
+        er = self._tree("commentsExtended.xml").getroot()
+        cex = etree.SubElement(er, w15("commentEx"))
+        cex.set(w15("paraId"), para_id); cex.set(w15("done"), "0")
+
+        self.log.append(f"OK   {label or 'comment'} (id {cid})"); return True
 
     # ---------- threaded comment replies ----------
     def reply_to_comment(self, parent_id, text, label=""):

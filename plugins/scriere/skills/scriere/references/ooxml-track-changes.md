@@ -45,6 +45,28 @@ cases — append *after* their insertion → drop a sibling `w:ins` right after 
 (`insert_after_ins`); fix a typo *inside* their insertion → edit the `w:t` in place
 (`fix_in_ins`), since it is already attributed to them.
 
+## New anchored comments (`add_comment`)
+
+A brand-new top-level comment, anchored at **paragraph level**: `commentRangeStart` right after
+`w:pPr`, `commentRangeEnd` + a `CommentReference` run appended at the paragraph's end. The
+comment visually covers the whole paragraph — right for reviewer notes, and it avoids run
+surgery entirely.
+
+- The paragraph is found by substring match on its concatenated `w:t` text (same
+  quote/space/dash normalization as `replace`). TOC paragraphs (`pStyle` starting with `TOC`)
+  are skipped when a non-TOC match exists; `occurrence="last"` picks the last match — needed
+  when the anchor is a heading whose text also appears in the table of contents.
+- If the document has no comments yet, `_ensure_comment_parts` creates `word/comments.xml` and
+  `word/commentsExtended.xml` **plus** their `[Content_Types].xml` overrides and
+  `document.xml.rels` relationships. `people.xml`/`commentsIds.xml` are optional — Word opens
+  fine without them (Google Docs exports ship without them too).
+- The new `w:id` is bumped above any existing comment id; the `commentEx` entry has no
+  `paraIdParent` (top-level) and `done="0"`.
+
+**Google Docs exports** bury most body paragraphs inside `w:sdt`/`w:sdtContent` wrappers
+(`goog_rdk_*` tags). `_paras()` therefore iterates `body.iter(w:p)` — all descendants — not just
+direct children; this also brings table-cell paragraphs into scope for all matchers.
+
 ## Threaded comment replies
 
 A reply is a normal comment that is *linked* to its parent. Parts involved:

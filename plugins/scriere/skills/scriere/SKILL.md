@@ -48,6 +48,10 @@ d.insert_after_ins("value sym", " (Olson [1965] 2003)", "cite after the user's o
 d.fix_in_ins("simetry", "symmetry", "typo inside user's insertion")
 d.set_heading("Exploitation of the largest by the smallest", 3, "promote to H3")
 
+# NEW anchored comment — paragraph-level; creates comments.xml etc. if the doc has none;
+# occurrence="last" when the anchor is a heading that also appears in the TOC
+d.add_comment("unique anchor text", "Reviewer note on this paragraph.", "note")
+
 # threaded comment reply (links to the existing comment by its id)
 d.reply_to_comment(13, "Inserted (Sandler 2015, 190) after the definition.", "reply #13")
 
@@ -148,6 +152,7 @@ with pandoc before returning the file.
 
 - `scripts/docx_track.py` — the reusable `Docx` helper: `unpack`/`repack`/`save`; tracked
   `replace`/`delete`/`insert_after_text`/`insert_after_ins`/`fix_in_ins`/`set_heading`;
+  `add_comment` (new paragraph-anchored comment; auto-creates the comment parts);
   `reply_to_comment`; `add_footnote`; `report`.
 - `scripts/validate_docx.py` — the mandatory pandoc accept/reject/plain check (+ `--grep`, `--show`).
 - `references/ooxml-track-changes.md` — OOXML schema, the run-splitting gotcha, comment-threading
