@@ -112,10 +112,17 @@ compute the highlight rectangles read-only with PyMuPDF while Zotero is open (Zo
 CropBox-relative, bottom-left origin: `H − y`), queue them, then flush all writes in one pass with
 Zotero closed. Don't re-run a write that already succeeded — it duplicates annotations.
 
-**Child note** (summaries etc.): insert `items` (itemTypeID 1) + `itemNotes(itemID, parentItemID, note)`.
-**Write PLAIN TEXT** (blank-line paragraph breaks), NOT HTML: externally-written note HTML is
-escaped/sanitized at the next startup (wrapped in `zotero-note znv1`, tags rendered as literal text).
-Zotero converts the plain text to proper `<p>` paragraphs itself, stably.
+**Child note** (summaries, caches): `zot.add_child_note(cur, parent_item_id, note_text)` —
+works for both a top-level item and an **attachment** as parent (Zotero's PDF-reader sidebar
+uses attachment-as-parent for "add note from annotations"). `zot.find_child_notes(parent_item_id)`
+reads them back (read-only); `zot.update_note(cur, note_item_id, note_text)` overwrites one in
+place. **Write PLAIN TEXT** (blank-line paragraph breaks), NOT HTML: externally-written note HTML
+is escaped/sanitized at the next startup (wrapped in `zotero-note znv1`, tags rendered as literal
+text). Zotero converts the plain text to proper `<p>` paragraphs itself, stably — but also
+substitutes `&nbsp;` for runs of 2+ consecutive spaces within a line, so anything read back that
+needs to stay substring-searchable (e.g. a text cache) must fold NBSP back to a plain space; see
+`references/pdf-text-cache.md` for the worked example (`pdf_text_cache.py` memoizes PDF text
+extraction this way).
 
 ## Gotchas
 

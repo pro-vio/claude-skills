@@ -266,6 +266,34 @@ def attach_pdf(cur, parent_item_id, pdf_path):
                 "VALUES (?,?,?,?,?,?,?)", (iid, parent_item_id, 0, "application/pdf", "storage:"+fname, mtime, md5))
     return iid
 
+# ---- child notes (summaries, caches) ----
+# Zotero supports notes as children of an ATTACHMENT (not just of the top-level
+# bibliographic item) — this is the same mechanism its PDF-reader sidebar uses
+# for "add note from annotations". Write PLAIN TEXT; Zotero wraps it in its own
+# <div class="zotero-note znv1"> at next startup and stably re-renders as <p>
+# paragraphs from then on. Do not write HTML directly — it gets escaped/shown
+# as literal tags (see zotero-schema.md "Child note").
+def add_child_note(cur, parent_item_id, note_text):
+    """Create a new plain-text child note. Returns the new note's itemID."""
+    tid = item_type_id(cur, "note")
+    iid = _next_id(cur, "itemID", "items"); t = now()
+    cur.execute("INSERT INTO items (itemID,itemTypeID,dateAdded,dateModified,clientDateModified,libraryID,key,version,synced) "
+                "VALUES (?,?,?,?,?,?,?,0,0)", (iid, tid, t, t, t, LIBRARY_ID, newkey()))
+    cur.execute("INSERT INTO itemNotes (itemID,parentItemID,note,title) VALUES (?,?,?,?)",
+                (iid, parent_item_id, note_text, ""))
+    return iid
+
+def find_child_notes(parent_item_id):
+    """[(noteItemID, key, note_text)] for all child notes of a parent (item or
+    attachment). Read-only — safe while Zotero is running."""
+    return _ro().execute("SELECT itemID, key, note FROM items JOIN itemNotes USING(itemID) "
+                          "WHERE parentItemID=?", (parent_item_id,)).fetchall()
+
+def update_note(cur, note_item_id, note_text):
+    """Overwrite an existing note's plain-text content in place (no duplicate note)."""
+    cur.execute("UPDATE itemNotes SET note=? WHERE itemID=?", (note_text, note_item_id))
+    touch(cur, note_item_id)
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "userid"
     if cmd == "find":

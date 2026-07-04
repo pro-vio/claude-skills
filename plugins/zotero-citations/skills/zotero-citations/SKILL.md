@@ -115,6 +115,17 @@ via vision *this time, and every time after*, since the file stays unchanged if 
 run `overlay_pdf` on explicit agreement. Full ask-first script, verification steps, and the
 file-replace + DB-update recipe: `references/ocr-overlay.md`.
 
+## Optional: PDF text-extraction cache
+
+Re-extracting the same PDF's text on every read wastes work — memoize it as a child note on
+the attachment, keyed to `storageHash`, so a second read of the same file reuses it instead of
+re-extracting. `pdf_text_cache.get_cached(key)` is read-only (Zotero can stay open); only fall
+through to a closed `write_session` + `pdf_text_cache.ensure_cached(...)` on an actual cache
+miss — checking first, without closing Zotero, is the real efficiency win, not just skipping
+re-extraction. Composes with the OCR overlay above: if `ocr_overlay.detect_scan()` says the PDF
+is an unprocessed scan, run that ask-first flow first so there's a real text layer to cache.
+Full recipe, note format, and the NBSP-fold gotcha: `references/pdf-text-cache.md`.
+
 ## Working principles (why this setup)
 
 These are the lessons that make the pipeline robust. Follow them; they prevent the classic failures.
@@ -173,6 +184,11 @@ identifiable. The list is separate, chronological, and filtered to what's actual
   (`estimate`), and the invisible-text-layer overlay (`overlay_pdf`) for scanned PDFs.
 - `references/ocr-overlay.md` — the ask-first protocol for OCR overlay: when to offer it, what
   to ask, verification (0-pixel-diff check), and the file-replace + DB-update recipe.
+- `scripts/pdf_text_cache.py` — memoize PDF text extraction as a child note keyed to
+  `storageHash` (`get_cached`, `ensure_cached`, `extract_pdf_text`); `zot.add_child_note` /
+  `find_child_notes` / `update_note` are the general-purpose note helpers it's built on.
+- `references/pdf-text-cache.md` — the check-first-without-closing-Zotero usage pattern, note
+  format, and why the NBSP fold-back matters for keeping cached text greppable.
 - `references/runtime-optimization.md` — frictionless process control (one-time permission
   allowlist, canonical start/stop/ping command shapes, DB-write protocol, acceptance test,
   portability checklist). Follow its canonical command shapes so the prefix-matched allow rules
