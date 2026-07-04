@@ -96,6 +96,25 @@ Three failure modes surfaced during the first real corpus-ingestion run (8 statu
    omits annotation items, so a zero result does NOT mean the highlights failed. Verify in the DB
    (`itemAnnotations` joined to `items.dateAdded`) or visually in the Zotero reader.
 
+### One close/reopen per task — batch every write (the expensive-cycle lesson, 2026-07-04)
+
+A single graceful close + restart costs **~2–4 min** (backup, poll-until-quiescent, the API-ping
+budget). A run that inserted 10 references + a statute took **three** such cycles (~10 min of pure
+protocol) because it closed → wrote → reopened → *then* read a collection key → had to close again.
+The fix is ordering + batching, now encapsulated in `zot.write_session` (see `zotero-schema.md`):
+
+- **Resolve everything you can while Zotero is OPEN, before the first close.** Collection ids
+  (`zot.find_collection`, read-only), csljson lookups, which items already exist — all read live.
+- **Then ONE `write_session`** covering every insert/edit/attach/filing for the task. It does
+  wait-until-quiescent → backup → write → verify-on-disk internally. Never close→write→reopen→
+  read→close→write; that is two cycles doing one job.
+- **Pure creation doesn't need a close at all:** `POST /connector/saveItems` (Zotero open, HTTP
+  201). Use the closed `write_session` only when the batch also edits existing items, attaches
+  PDFs, or moves things — operations the API refuses.
+- **Downloading source text** (statute PDFs, etc.) is orthogonal to the write cycle — do it up
+  front, before closing Zotero, so the closed window stays as short as possible. For RO
+  legislation see `references/ro-legislation-fetch.md` (cdep.ro works; just.ro/paywalls don't).
+
 ## Accept monitor — one optimization proposal per iteration
 
 Allowlists decay: real work invents command shapes the rules don't match (see v2 lessons). So the

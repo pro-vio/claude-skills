@@ -78,6 +78,12 @@ Keep these items in a dedicated Zotero collection (e.g. `legislation`), as `stat
 official title in the original language), `history` (the official gazette reference, e.g. Monitorul
 Oficial nr. …), `dateEnacted`, `codeNumber` (e.g. "227/2015"), `extra` (locator/notes).
 
+To **add** a statute (download its text, create the item, attach the PDF, file it into the
+collection) do it as one batched write — `zot.write_session` + `zot.add_item`/`attach_pdf` (see
+`references/zotero-schema.md`), and fetch the text via `references/ro-legislation-fetch.md`
+(cdep.ro is the source that actually scrapes). Resolve the collection id **before** closing Zotero
+and keep everything in a single close/reopen cycle.
+
 ```
 python scripts/build_legislation_list.py --manuscript <md> --collection <COLLECTION_KEY> \
        [--source zotero|local --local-json <file>] [--write]
@@ -123,8 +129,11 @@ fix it at the item. Verify the resolved item (author + year + title); watch for 
 
 **F. Writing to Zotero.** New items → `/connector/saveItems` live (Zotero open; lands in the
 selected collection — verify). Editing/moving/deleting existing items, or annotations → write
-`zotero.sqlite` directly with **Zotero closed + backup** (API is read-only for these). See
-`references/zotero-schema.md` for tables, fieldIDs, and the helper patterns in `scripts/zot.py`.
+`zotero.sqlite` directly with **Zotero closed + backup** (API is read-only for these). Batch **all**
+DB writes for a task into **one** close/reopen cycle — resolve collection ids (`zot.find_collection`)
+while Zotero is still open, then a single `zot.write_session` — because each cycle costs ~2–4 min.
+See `references/zotero-schema.md` for tables, fieldIDs, and the `scripts/zot.py` helpers, and
+`references/runtime-optimization.md` for the batching rule.
 
 **G. Citing legislation (house style, consistent with CMOS shortened citations).** CMOS doesn't
 prescribe a format for non-US legislation and usually puts laws in notes, not the reference list;
@@ -138,11 +147,15 @@ identifiable. The list is separate, chronological, and filtered to what's actual
 
 - `scripts/build_manuscris.py` — Workflow 1 (live academic citations).
 - `scripts/build_legislation_list.py` — Workflow 2 (legislation/case-law list).
-- `scripts/zot.py` — Zotero helper: read offline, detect user id, direct-write helpers
-  (`open_rw`, `get_value`, `set_field`, `touch`, `field_id`), find items/PDFs.
+- `scripts/zot.py` — Zotero helper: read offline, detect user id, find items/PDFs; low-level
+  direct-write helpers (`open_rw`, `get_value`, `set_field`, `touch`, `field_id`); and the batched
+  write cycle (`write_session`, `add_item`, `attach_pdf`, `add_to_collection`, `find_collection`) —
+  one close/reopen for a whole task's inserts + attachments.
 - `references/chicago-author-date.csl` — default style.
-- `references/zotero-schema.md` — DB schema, fieldIDs, and write/annotation patterns. **Read this
-  before any direct database edit.**
+- `references/zotero-schema.md` — DB schema, fieldIDs, write/annotation patterns, and the
+  `write_session` ingest recipe. **Read this before any direct database edit.**
+- `references/ro-legislation-fetch.md` — where to actually download Romanian statute text
+  (cdep.ro works; just.ro doesn't scrape; monitoruljuridic/lege5 are paywalled).
 - `references/runtime-optimization.md` — frictionless process control (one-time permission
   allowlist, canonical start/stop/ping command shapes, DB-write protocol, acceptance test,
   portability checklist). Follow its canonical command shapes so the prefix-matched allow rules

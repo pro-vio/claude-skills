@@ -19,7 +19,7 @@ CLI:
   python zot.py find "<query>"     # locate items by title/creator -> (key,title,attachKey,pdf)
   python zot.py userid             # print the library user id (for the web-API URLs)
 """
-import sqlite3, sys, os, json, random, datetime, urllib.request
+import sqlite3, sys, os, json, random, datetime, urllib.request, time, shutil, hashlib
 try: sys.stdout.reconfigure(encoding="utf-8")  # Windows cp1252 consoles crash on diacritics/emoji prints
 except Exception: pass
 
@@ -120,6 +120,142 @@ def touch(cur, item_id):
 def field_id(cur, field_name):
     r = cur.execute("SELECT fieldID FROM fields WHERE fieldName=?", (field_name,)).fetchone()
     return r[0] if r else None
+
+# ---- batched write cycle (do ALL writes for a task in ONE close/reopen) ----
+# Every graceful close + restart of Zotero costs ~2-4 min (backup, poll-until-clean,
+# API-ping budget). So: resolve every collection key you need with find_collection()
+# while Zotero is still OPEN, then do a SINGLE write_session covering all items,
+# attachments and collection filings. Do NOT close→write→reopen→read→close→write again.
+LIBRARY_ID = 1  # personal library
+
+def wait_until_quiescent(tries=20, delay=1.0):
+    """Block until it is safe to write: Zotero's API is down AND no -wal/-journal
+    lingers (a residual process flushing after your write silently discards it —
+    the shutdown-race lesson). Raises if Zotero is still serving after the budget."""
+    for _ in range(tries):
+        journ = [DB + s for s in ("-wal", "-journal") if os.path.exists(DB + s)]
+        if not zotero_running() and not journ:
+            return True
+        time.sleep(delay)
+    if zotero_running():
+        raise SystemExit("ABORT: Zotero încă răspunde pe 23119 — închide-l (taskkill /IM zotero.exe, fără /F) și reia.")
+    return True  # process down but journal lingered; caller proceeds (backup already taken)
+
+def backup(tag):
+    """Checkpoint zotero.sqlite -> zotero.sqlite.pre-<tag>.bak. Returns the path."""
+    dst = f"{DB}.pre-{tag}.bak"
+    shutil.copy2(DB, dst)
+    return dst
+
+class write_session:
+    """One batched DB-write cycle (Zotero CLOSED). Encapsulates the whole protocol:
+    wait-until-quiescent -> backup -> open_rw -> (your writes) -> commit -> re-read
+    from disk to verify the commit landed.
+
+        with zot.write_session("roman-ana") as cur:
+            sid = zot.add_item(cur, "statute", {"nameOfAct": "...", "codeNumber": "57/1968",
+                                                "dateEnacted": "1968-00-00 1968"}, collection_id=cid)
+            zot.attach_pdf(cur, sid, "/path/Legea_57_1968.pdf")
+            zot.add_item(cur, "webpage", {"title": "Servicii", "url": "..."},
+                         creators=[("author", "LOGS Grup de Inițiative Sociale")], collection_id=cid)
+
+    Exceptions inside the block roll back and re-raise (nothing is written). Resolve
+    collection ids with find_collection() BEFORE the block, while Zotero is open."""
+    def __init__(self, tag, verify=True):
+        self.tag, self.verify, self.bak = tag, verify, None
+    def __enter__(self):
+        wait_until_quiescent()
+        self.bak = backup(self.tag)
+        self.con = open_rw(); self.cur = self.con.cursor()
+        return self.cur
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type:
+            self.con.rollback(); self.con.close(); return False  # re-raise
+        self.con.commit(); self.con.close()
+        if self.verify:
+            n = _ro().execute("SELECT COUNT(*) FROM items WHERE synced=0").fetchone()[0]
+            print(f"OK write_session '{self.tag}': committed; {n} item(s) pending sync; backup {os.path.basename(self.bak)}")
+        return False
+
+# ---- create-item building blocks (use inside write_session) ----
+def item_type_id(cur, type_name):
+    r = cur.execute("SELECT itemTypeID FROM itemTypes WHERE typeName=?", (type_name,)).fetchone()
+    return r[0] if r else None
+
+def find_collection(name):
+    """(key, collectionID) for a collection by display name, or None. Uses a read-only
+    connection, so it is safe to call while Zotero is RUNNING — resolve ids here first."""
+    r = _ro().execute("SELECT key, collectionID FROM collections WHERE collectionName=?", (name,)).fetchone()
+    return (r[0], r[1]) if r else None
+
+def _next_id(cur, col, table):
+    return cur.execute(f"SELECT COALESCE(MAX({col}),0)+1 FROM {table}").fetchone()[0]
+
+def _creator_id(cur, last, first, field_mode):
+    r = cur.execute("SELECT creatorID FROM creators WHERE lastName=? AND firstName=? AND fieldMode=?",
+                    (last, first, field_mode)).fetchone()
+    if r: return r[0]
+    nid = _next_id(cur, "creatorID", "creators")
+    cur.execute("INSERT INTO creators (creatorID,firstName,lastName,fieldMode) VALUES (?,?,?,?)",
+                (nid, first, last, field_mode))
+    return nid
+
+def _set_creators(cur, item_id, creators):
+    """creators = [(creatorType, "Whole Institution Name")]  -> literal (fieldMode 1)
+                  [(creatorType, lastName, firstName)]        -> personal (fieldMode 0)"""
+    for idx, cre in enumerate(creators):
+        ctype = cre[0]
+        if len(cre) == 2:            # literal / institutional author
+            last, first, fmode = cre[1], "", 1
+        else:
+            last, first, fmode = cre[1], cre[2], 0
+        ctid = cur.execute("SELECT creatorTypeID FROM creatorTypes WHERE creatorType=?", (ctype,)).fetchone()
+        if not ctid: raise ValueError(f"unknown creator type {ctype!r}")
+        cid = _creator_id(cur, last, first, fmode)
+        cur.execute("INSERT INTO itemCreators (itemID,creatorID,creatorTypeID,orderIndex) VALUES (?,?,?,?)",
+                    (item_id, cid, ctid[0], idx))
+
+def add_to_collection(cur, item_id, collection_id):
+    oi = cur.execute("SELECT COALESCE(MAX(orderIndex),0)+1 FROM collectionItems WHERE collectionID=?",
+                     (collection_id,)).fetchone()[0]
+    cur.execute("INSERT OR IGNORE INTO collectionItems (collectionID,itemID,orderIndex) VALUES (?,?,?)",
+                (collection_id, item_id, oi))
+
+def add_item(cur, type_name, fields, creators=None, collection_id=None):
+    """Create a new item. fields = {fieldName: value} (empty/None skipped);
+    creators see _set_creators; files into collection_id if given. Returns itemID.
+    Tip: for pure *creation* with Zotero OPEN you can instead POST /connector/saveItems
+    (HTTP 201, no close). Use this path when the same batch also edits/attaches."""
+    tid = item_type_id(cur, type_name)
+    if tid is None: raise ValueError(f"unknown item type {type_name!r}")
+    iid = _next_id(cur, "itemID", "items"); t = now()
+    cur.execute("INSERT INTO items (itemID,itemTypeID,dateAdded,dateModified,clientDateModified,libraryID,key,version,synced) "
+                "VALUES (?,?,?,?,?,?,?,0,0)", (iid, tid, t, t, t, LIBRARY_ID, newkey()))
+    for fname, val in (fields or {}).items():
+        if val is None or val == "": continue
+        fid = field_id(cur, fname)
+        if fid is None: raise ValueError(f"unknown field {fname!r}")
+        set_field(cur, iid, fid, str(val))
+    if creators: _set_creators(cur, iid, creators)
+    if collection_id is not None: add_to_collection(cur, iid, collection_id)
+    return iid
+
+def attach_pdf(cur, parent_item_id, pdf_path):
+    """Stored-copy PDF attachment: create the attachment item, copy the file to
+    storage/<key>/, set linkMode 0 (imported_file), md5 storageHash, storageModTime."""
+    if not os.path.exists(pdf_path): raise FileNotFoundError(pdf_path)
+    tid = item_type_id(cur, "attachment")
+    iid = _next_id(cur, "itemID", "items"); key = newkey(); t = now()
+    cur.execute("INSERT INTO items (itemID,itemTypeID,dateAdded,dateModified,clientDateModified,libraryID,key,version,synced) "
+                "VALUES (?,?,?,?,?,?,?,0,0)", (iid, tid, t, t, t, LIBRARY_ID, key))
+    fname = os.path.basename(pdf_path)
+    dstdir = os.path.join(STORAGE, key); os.makedirs(dstdir, exist_ok=True)
+    shutil.copy2(pdf_path, os.path.join(dstdir, fname))
+    with open(pdf_path, "rb") as fh: md5 = hashlib.md5(fh.read()).hexdigest()
+    mtime = int(os.path.getmtime(pdf_path) * 1000)
+    cur.execute("INSERT INTO itemAttachments (itemID,parentItemID,linkMode,contentType,path,storageModTime,storageHash) "
+                "VALUES (?,?,?,?,?,?,?)", (iid, parent_item_id, 0, "application/pdf", "storage:"+fname, mtime, md5))
+    return iid
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "userid"

@@ -64,10 +64,30 @@ Set these on the item's `extra` field; no native originalDate/citationKey field 
 **RO/foreign titles get Title-Cased by CSL** when `language` is missing → set `language: ro`
 so citeproc leaves the title as written. ALL-CAPS in the source passes through → fix at the item.
 
-**Add a statute** (itemTypeID 36): insert `items`, then `itemData` rows for
-`nameOfAct`/`codeNumber`/`dateEnacted` (date format `YYYY-00-00 YYYY`), add to the collection via
-`collectionItems`, then attach the PDF (copy file to `storage/<8charKey>/<file>`, linkMode 0,
-storageHash = md5, storageModTime = mtime·1000).
+**Add a statute / any new item — use the batched helpers, don't hand-roll SQL.** `zot.py` ships
+`write_session` + `add_item`/`attach_pdf`/`add_to_collection`/`find_collection`, which do the whole
+protocol (wait-until-quiescent → backup → write → verify-on-disk) and all the create SQL. Resolve
+collection ids with `find_collection` **while Zotero is still open**, then one closed cycle:
+
+```python
+import zot
+key, cid = zot.find_collection("2026_teze")          # read-only — do this BEFORE closing Zotero
+with zot.write_session("roman-ana") as cur:           # close Zotero first; this waits + backs up
+    sid = zot.add_item(cur, "statute",
+        {"shortTitle": "Legea 57/1968", "nameOfAct": "Lege nr. 57/1968 …",
+         "codeNumber": "57/1968", "dateEnacted": "1968-00-00 1968",   # date format YYYY-00-00 YYYY
+         "history": "Buletinul Oficial nr. …"}, collection_id=cid)
+    zot.attach_pdf(cur, sid, "legislatie/Legea_57_1968.pdf")          # stored copy + md5 hash
+    zot.add_item(cur, "webpage", {"title": "Servicii", "url": "…", "language": "ro"},
+        creators=[("author", "LOGS Grup de Inițiative Sociale")], collection_id=cid)  # literal author
+```
+
+`add_item` fields = `{fieldName: value}`; creators are `("author", "Whole Institution")` (literal,
+fieldMode 1) or `("author", last, first)` (personal). Under the hood it still does what the manual
+recipe did — insert `items`, `itemData` rows, `collectionItems`, and for PDFs copy to
+`storage/<8charKey>/<file>` with linkMode 0, storageHash = md5, storageModTime = mtime·1000 — but as
+one tested call. **For pure *creation* with Zotero left OPEN, `POST /connector/saveItems` (HTTP 201)
+needs no close at all** — reach for `write_session` when the same batch also edits or attaches.
 
 **Native annotation** (color encodes author — convention: purple `#a28ae5` = "Claude", yellow = user):
 compute the highlight rectangles read-only with PyMuPDF while Zotero is open (Zotero/PDF.js use
