@@ -137,9 +137,22 @@ The hook only observes (no stdout → cannot alter the permission decision; `asy
 the prompt). `PermissionDenied` entries mark commands the user REFUSED — never propose allowlisting
 those.
 
+**The log is machine-wide, not per-conversation.** The hook fires once per Claude Code *process*,
+so `~/.claude/perm-requests.jsonl` interleaves every concurrent session on the machine — there is
+no conversation boundary in the file by default. Each entry carries a `session` field (last 8
+chars of the hook's `session_id`) for exactly this reason: **filter to the current session before
+clustering**, or a "monitor my accepts" request silently reports other people's/other projects'
+concurrent work as if it were this session's. This happened for real: asked to monitor one
+session's accepts, a naive "everything since I started watching" read back 97 entries from four
+unrelated coordination-project sessions running in parallel, and zero from the session that asked
+— the fix is filtering by `session`, not assuming the log is already scoped.
+
 **Ritual (end of every iteration, or when the user asks "de ce am dat atâtea accept-uri?"):**
 
-1. Read `~/.claude/perm-requests.jsonl`; keep entries newer than the last review.
+1. Read `~/.claude/perm-requests.jsonl`; keep entries newer than the last review **AND matching
+   the current session's `session_id[-8:]`** — get the running session's own id (e.g. from the
+   transcript path or `$CLAUDE_SESSION_ID` if exposed) before filtering, don't guess by timestamp
+   alone (concurrent sessions overlap in time).
 2. Cluster them by command class (same executable + same shape), separating denied ones out.
 3. For each accepted cluster propose EXACTLY ONE fix — an allowlist rule, a command-shape
    standardization (so an existing prefix rule matches), or an `additionalDirectories` entry.
