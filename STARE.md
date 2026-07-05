@@ -1,15 +1,40 @@
 # STARE — claude-skills (marketplace pro-vio/claude-skills)
 
-*Ultima actualizare: 2026-07-04, sesiunea "chat dedicat skill-urilor".*
+*Ultima actualizare: 2026-07-05, sesiunea "chat dedicat skill-urilor" (continuare).*
 
 ## Versiuni curente
 
 | Plugin | Versiune | Ultimul commit |
 |---|---|---|
-| `zotero-citations` | 1.6.2 | `adc8204` — fix cache miss permanent pe atașamente legate |
+| `zotero-citations` | 1.6.6 | `b0434cf` — `prefetch_collection.py`, cache PDF în lot pe o colecție |
 | `scriere` | 1.3.0 | `7ca9431` — allowlist batch citire/validare docx |
 
-## Ce s-a făcut azi (sesiune lungă, recap)
+## Sesiunea 2026-07-05 (recap)
+
+Fir principal: monitorizarea prompturilor de permisiune agregată pe TOATE sesiunile/proiectele
+(nu doar cea curentă — corectare explicită a userului, vezi `feedback_monitor_agregare_toate_sesiuni.md`),
+apoi o cerere de "skill de evaluare" din tiparul de coordonare a tezelor 2026, restrânsă de user
+la un scop mult mai mic: elimină click-urile de permisiune la verificarea surselor unei teze.
+
+1. **v1.6.3–1.6.5**: `log_perm.py` loghează `session_id` (provenance opțională, nu filtru implicit);
+   corectat de la "filtrează pe sesiune" la "agregă pe toate" (v1.6.4); documentate două bug-uri de
+   *formă* a comenzilor care rup potrivirea de permisiuni — heredoc Python în lanțuri `&&` (54/106
+   prompturi) și `\|` scăpat într-un pattern grep citat (~12/106) — fix la formă, nu regulă nouă de
+   allowlist (v1.6.5).
+2. `~/.claude/settings.json`: adăugate `Temp\claude` (friction Read pe scratchpad, 25/120 prompturi)
+   și `Documents\claude_2026_coordonare` (foldere de studenți) în `additionalDirectories`.
+3. **Scope-narrowing**: cererea inițială "construiește un skill de evaluare din chat-ul Desiree" a
+   fost redusă de user la "să nu mai dau click pt fiecare sursă" — verdictul de notare/comentariile
+   rămân judecăți per-teză (nu se automatizează). Plan aprobat în Plan Mode, executat integral.
+4. **v1.6.6**: `prefetch_collection.py` — populează cache-ul de text pentru toate atașamentele unei
+   colecții Zotero într-un singur `write_session`, ca verificarea ulterioară a citatelor unei teze
+   să nu mai ceară niciun prompt nou. Bug real întâlnit la testare: "database is locked" pe toate
+   cele 12 atașamente, deși codul (un singur cursor) era deja corect — cauza reală era Zotero
+   redeschis fizic în timpul rulării (proces separat, nu conexiune SQLite dublă în script). Fix
+   operațional (închide Zotero, rulează până la capăt, redeschide după), documentat în
+   `references/pdf-text-cache.md` și `feedback_zotero_locked_reopened_mid_run.md`.
+
+## Sesiunea 2026-07-04 (recap, arhivat)
 
 **zotero-citations** — cea mai mare parte a lucrului:
 1. **v1.4.0–1.4.1**: `write_session` batch (un singur ciclu close/reopen Zotero pentru multe scrieri), rețetă legislație RO (cdep.ro), `zot.NOT_TRASHED` (interogările trebuie să excludă coșul explicit — descoperit real: 2 scan-uri "citite" erau deja în coș din iunie).
@@ -36,10 +61,16 @@ la v1.2.0). Copia locală a fost modificată azi la 20:28, de o **altă sesiune 
 ## Lecții/bug-uri reale prinse din folosire (nu din recitire de cod)
 
 Toate documentate și în memoria auto (`~/.claude/projects/.../memory/`):
-- `feedback_zotero_batch_locking.md` — locking la scrieri batch
+- `feedback_zotero_batch_locking.md` — locking la scrieri batch (conexiune dublă în script)
 - `feedback_zotero_cache_linked_attachments.md` — storageHash NULL pe atașamente legate
 - `feedback_pdf_text_cache_zotero.md` — motivația centralizării în Zotero
 - `feedback_propagare_doar_fisiere_atinse.md` — verifică mtime înainte de a propaga batch
+- `feedback_monitor_agregare_toate_sesiuni.md` — monitorul agregă, nu filtrează pe sesiune
+- `feedback_forma_python_encoding.md` — niciodată heredoc Python, apel direct `python script.py`
+- `feedback_grep_escaped_pipe_permisiuni.md` — `\|` scăpat în grep citat rupe potrivirea
+- `feedback_scope_narrowing_friction_vs_skill.md` — nu formaliza judecăți per-teză ca skill
+- `feedback_zotero_locked_reopened_mid_run.md` — "database is locked" poate fi Zotero redeschis
+  fizic în timpul rulării, nu doar bugul de conexiune dublă din script
 
 ## Ce urmează (opțional, neprogramat)
 
