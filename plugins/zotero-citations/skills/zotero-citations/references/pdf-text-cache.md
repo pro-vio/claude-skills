@@ -68,6 +68,38 @@ didn't match the number of items processed. One connection, for both reads and w
 whole session — the `get_cached()` stand-alone path is unaffected since it never runs inside an
 open write transaction.
 
+## Pregătire în lot pentru verificarea unei teze (`prefetch_collection.py`)
+
+When the next step is comparing a thesis's in-text citations against their actual sources (grading
+workflow), the friction isn't re-extraction — it's the **permission prompt**, once per new source
+file touched during that pass. `scripts/prefetch_collection.py <collection name>` resolves every
+PDF attachment in a Zotero collection (the student's subcollection, e.g. `matyasi_desiree`) and
+runs `ensure_cached` on all of them in **one** `write_session` — same batching rule as above, one
+close/reopen for the whole collection, not one per source:
+
+```
+python prefetch_collection.py matyasi_desiree
+```
+
+Run this once before starting the source-verification pass; after it, `get_cached()` serves every
+citation check read-only, Zotero can stay open, and no new file-read prompt appears no matter how
+many sources the thesis cites. Pair it with adding the folder that actually holds the PDFs (a
+student's own reference folder, for linked attachments) to `additionalDirectories` in
+`~/.claude/settings.json` — the script removes the re-extraction cost, that settings entry removes
+the per-file permission prompt; neither alone is enough.
+
+**Real failure mode hit while building this, worth knowing if it recurs:** a full run failed
+`database is locked` on *every* attachment even with the one-cursor rule above already correctly
+in place. Root cause was environmental, not a code bug: `write_session.__enter__` checks once,
+at the start, that Zotero is closed — it does not re-check during the loop. Zotero got relaunched
+between that check and the loop's per-item queries (a manual reopen mid-run), and a second live
+writer against the same file is exactly what produces this error. Fix was operational, not a code
+change: close Zotero, run the script, and don't reopen it until the script has printed its final
+manifest line. If this error reappears despite the single-cursor code being correct, check
+`Get-Process zotero` and the DB's `-journal`/`-wal` files before re-reading the script — the
+symptom is identical to the connection-reuse bug this file documents above, but the cause here is
+a second *process*, not a second connection object in the same script.
+
 ## Scans: run the OCR-overlay ask-first flow before this, not instead of it
 
 `extract_pdf_text` pulls whatever text layer the PDF already has — it does **not** OCR anything.

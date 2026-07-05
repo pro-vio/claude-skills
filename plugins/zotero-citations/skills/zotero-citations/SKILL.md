@@ -124,7 +124,10 @@ through to a closed `write_session` + `pdf_text_cache.ensure_cached(...)` on an 
 miss — checking first, without closing Zotero, is the real efficiency win, not just skipping
 re-extraction. Composes with the OCR overlay above: if `ocr_overlay.detect_scan()` says the PDF
 is an unprocessed scan, run that ask-first flow first so there's a real text layer to cache.
-Full recipe, note format, and the NBSP-fold gotcha: `references/pdf-text-cache.md`.
+Full recipe, note format, and the NBSP-fold gotcha: `references/pdf-text-cache.md`. About to
+check many sources at once (e.g. verifying a thesis's citations against its sources)? Prefetch
+the whole collection in one batch instead of hitting the cache one file at a time — see
+"Pregătire în lot" in the same reference and `scripts/prefetch_collection.py`.
 
 ## Working principles (why this setup)
 
@@ -189,6 +192,10 @@ identifiable. The list is separate, chronological, and filtered to what's actual
   `find_child_notes` / `update_note` are the general-purpose note helpers it's built on.
 - `references/pdf-text-cache.md` — the check-first-without-closing-Zotero usage pattern, note
   format, and why the NBSP fold-back matters for keeping cached text greppable.
+- `scripts/prefetch_collection.py` — batch-populate the PDF text cache for every attachment in a
+  named collection, in one `write_session` (e.g. before verifying a thesis's citations against
+  its sources — zero new permission prompts afterward, however many sources are cited). See
+  "Pregătire în lot" in `references/pdf-text-cache.md`.
 - `references/runtime-optimization.md` — frictionless process control (one-time permission
   allowlist, canonical start/stop/ping command shapes, DB-write protocol, acceptance test,
   portability checklist). Follow its canonical command shapes so the prefix-matched allow rules
