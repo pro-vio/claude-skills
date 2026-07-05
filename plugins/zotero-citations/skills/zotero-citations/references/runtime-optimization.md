@@ -62,6 +62,24 @@ corrupt `zotero.sqlite`, so it still requires an explicit user accept. Same phil
 direct DB write: graceful close → backup `zotero.sqlite` → write → restart → verify (see §F of
 SKILL.md and `zotero-schema.md`).
 
+**v3 lessons (aggregated accept-monitor pass across all concurrent sessions, 2026-07-05):** these
+are command-**shape** problems, not missing rules — the base commands were already allowlisted,
+so don't add new entries for them; fix the shape instead, in every session, not just one.
+
+- **Never invoke Python via heredoc** (`python - <<'EOF' ... EOF`), even inside a `cd X && ...`
+  chain. This was **half of all prompts in one day's aggregate log (54/106)** — `cd`, `pandoc`,
+  and `python` are each individually allowlisted, but the permission matcher splits a compound
+  command on `&&` and checks each segment; the heredoc form doesn't match `Bash(python *)` cleanly
+  inside a chain the way a plain `python script.py` does. Fix: write the script to a scratch
+  `.py` file first (via the Write tool), then a single simple `cd X && python script.py` — no
+  heredoc, ever. See `feedback_forma_python_encoding` in project memory for the fuller writeup.
+- **A literal `\|` (regex alternation) inside a quoted grep pattern** — including inside a real
+  `ls … | grep "…\|…"` pipe — gets misread by the same segment-splitter as an additional shell
+  pipe boundary, producing a fake trailing "segment" that matches nothing. ~12/106 prompts in the
+  same aggregate pass. Fix: split into two separate `grep` calls instead of one pattern with `\|`,
+  when running through the Bash tool. Low stakes (grep is read-only) — skip the workaround if a
+  single occasional prompt doesn't bother you.
+
 ## Canonical commands (always these shapes, or the prefix rules won't match)
 
 | Action | Command |
