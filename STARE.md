@@ -1,6 +1,6 @@
 # STARE — claude-skills (marketplace pro-vio/claude-skills)
 
-*Ultima actualizare: 2026-07-05, sesiunea "chat dedicat skill-urilor" (continuare).*
+*Ultima actualizare: 2026-07-08, sesiunea "chat dedicat skill-urilor" (continuare).*
 
 ## Versiuni curente
 
@@ -8,6 +8,32 @@
 |---|---|---|
 | `zotero-citations` | 1.6.6 | `b0434cf` — `prefetch_collection.py`, cache PDF în lot pe o colecție |
 | `scriere` | 1.3.0 | `7ca9431` — allowlist batch citire/validare docx |
+| `factsheet-teza` | — (skill personal, NU publicat în marketplace) | doar în `~/.claude/skills/factsheet-teza` |
+
+## Sesiunea 2026-07-08 (recap)
+
+Monitorizat o sesiune paralelă care folosea skill-ul personal `factsheet-teza` (generare fișe de
+pre-susținere pentru studenți, nu publicat în marketplace) — 319 prompturi noi de permisiune,
+din care ~96 direct legate de fact sheet.
+
+1. **Investigație "database is locked" — găsită cauza reală**: nu regresia de conexiune dublă
+   deja reparată (v1.6.1), ci Zotero redeschis fizic în timpul rulării unui `write_session`
+   (verifică o singură dată, la intrare). Vezi `feedback_zotero_locked_reopened_mid_run.md`.
+2. **Fix greșit, corectat cu date reale**: am presupus că prompturile repetate pe scratchpad
+   erau din cauza formei căii (scurtă Windows `VIOREL~1` / POSIX `/c/Users/...`) și am adăugat
+   variante în `additionalDirectories` — verificat empiric ORE mai târziu că NU a funcționat.
+   A doua descoperire: regulile `PowerShell(... *)` cu wildcard nu se potrivesc DELOC (proiectul
+   avea deja 1173 reguli exacte acumulate în `settings.local.json`, dovadă indirectă). Fix real:
+   am eliminat variabilitatea din comanda `verify_pdf.ps1` (argumente `-Src`/`-Out` implicite
+   fixe într-un folder `_stage/`, apelant face `cp` întâi) — testat efectiv prin Word COM, nu
+   doar citit codul. Detalii + lecția „nu insista pe aceeași strategie" în
+   `feedback_forma_cale_scurta_posix.md`.
+3. **Corectare de conținut**: nu insera niciodată citate din referatul coordonatorului în
+   fact sheet-ul unui student (linie roșie, reacție dură la Grădinaru v2) — întărit explicit în
+   `factsheet-teza/SKILL.md`. Vezi `feedback_fara_citate_referat_in_factsheet.md`.
+4. **Verificat, nu doar presupus**: `factsheet-teza` deja compune corect cu `scriere` (deschide
+   skill-ul separat peste docx-ul curat pentru track-changes/comentarii, nu reinventează nimic) —
+   nimic de consolidat acolo.
 
 ## Sesiunea 2026-07-05 (recap)
 
