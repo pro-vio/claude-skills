@@ -1,6 +1,6 @@
 # STARE — claude-skills (marketplace pro-vio/claude-skills)
 
-*Ultima actualizare: 2026-07-16 (a doua sesiune) — planul B+A executat; rămân C/OCR/rivali.*
+*Ultima actualizare: 2026-07-16 (a doua sesiune, runda 2) — toate deciziile pending executate: split Chelcea, 30 merge-uri same-PDF, OCR Public Goods, Denning→thesis.*
 
 ## HANDOFF 2026-07-16 — de unde continuă chatul nou
 
@@ -17,7 +17,19 @@ Planul B+A aplicat într-un singur `write_session`, verificat cu `audit_library.
   - capitolul din 6047 → bookSection nou 14812: Curaj, Deca & Hâj, *Romanian Higher Education in 2009–2013…*, pp. 1–24, DOI 10.1007/978-3-319-08054-3_1 (att 6168); cartea 6047 păstrează att 6048 (3 adnotări).
   - Itemele noi filate în colecțiile părinților vechi (212 IV_article, 131 Mendeley); niciun duplicat pre-existent (verificat; „Three Essays on the Economics of *Higher* Education" = teza lui Xia, alt document).
 
-**Iteme cu 2+ PDF rămase: 9** (16 − cele rezolvate), toate decizii deliberate încă deschise (findings noi în scratchpad sesiunea curentă, `findings_after.json`):
+### EXECUTAT în runda 2 (16.07 seara, backup `zotero.sqlite.pre-pending-batch-2.bak`)
+
+Userul a răspuns pe puncte la lista pending; aplicat totul într-un singur `write_session`, audit după = 0 orfane:
+- **Chelcea 341** — cele 2 scanuri erau capitole distincte (confirmate vizual): bookSection 14813 *Interviul* pp. 210–222 (scan 540) + 14814 *Analiza de conținut* pp. 442–470 (scan 531); cartea 341 rămâne (fără PDF).
+- **Ordinele 553/558** — păstrată doar versiunea completă (126p/98p); copiile scurte 554/559 la coș.
+- **Denning 10397** — retipat `thesis`, University of Texas at Austin (confirmat pe CV-ul lui de la UT Austin), pages→numPages.
+- **Grupurile same-PDF (fost „39", recalculat 36 fără trash)** — verificate una câte una pe conținut (pag. 1 + metadate): **30 merge-uri** (32 iteme contopite, `dc:replaces` pe master → total 415 relații; metadate îmbogățite: DOI-uri de capitol, editorii reali la Handbook Admin Data, cartea Miroiu&Cerkez 1363 reparată); **6 atașamente greșit-filate** la coș (1274 Welch, 1346 Dragoș, 1358 Oxford Handbook, 1361 Etemadi, 1363, 8298 Rauhvargers — fișierul aparținea altui item, bytes identice verificate); DOI-uri copiate greșit scoase de pe 13154 și 8300. Colaps post-merge: 32 copii byte-identice la coș.
+- **OCR Public Goods (item 21)** — overlay RapidOCR pe scanul 6532 (17p, 1263 blocuri, text invizibil; backup-ul scanului original în scratchpad); scanul cu 15 adnotări e acum keeper căutabil; copia text 23 la coș. Cache-ul text NU avea OCR pe scanuri (doar pe copia text) — verificat la cererea userului.
+- **Lăsate deliberat:** item **92** Legea 153/2011 — ambele copii au adnotări (12 pe originalul 2011, 1 pe forma consolidată 2023 = alte texte legale, nu duplicate); item **6110** Differentiation Theory — AMBELE copii sunt scanuri 519p adnotate (3/5 adn), OCR ar dura ore → userul a zis „lasă așa"; item **507** Scientific Management — rivali adnotați (explicat userului, decizie amânată); **C** (122, 341→rezolvat, 553/558→rezolvat, 7722) în forma decisă.
+- **Fantomele 7 = PDF-urile adnotate absente** (184 adnotări: Pincock 110, Azfar 28, Schlager/IAD 22, Cercel 11, DiMaggio&Powell 9, Ostrom 2010 3, Besley 1); userul crede că NU are cont Zotero cloud → nu se vor descărca singure; listate userului, de regăsit fișierele manual.
+- Git: `.gitignore` completat (date personale excluse: library.bib, extract/, mendeley-indexeddb-raw/, .claude/); comise scripturile migrării (`b2a7642`).
+
+*Context istoric (deciziile de dinaintea rundei 2):*
 
 **Skill ÎMBUNĂTĂȚIT (Pista B, gata + validat pe biblioteca reală):**
 - `scripts/audit_library.py` — health-check read-only (integritate, **fantome linkMode**, PDF-uri duble clasificate text/scan, metadate). `--json findings.json` alimentează reconcilierea.
