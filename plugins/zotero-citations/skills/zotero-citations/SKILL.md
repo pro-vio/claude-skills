@@ -129,6 +129,31 @@ check many sources at once (e.g. verifying a thesis's citations against its sour
 the whole collection in one batch instead of hitting the cache one file at a time — see
 "Pregătire în lot" in the same reference and `scripts/prefetch_collection.py`.
 
+## Optional: library audit & duplicate-attachment reconciliation
+
+Beyond citations, the skill can health-check the library and clean up duplicate PDFs.
+
+`scripts/audit_library.py` (read-only, run with Zotero open) reports: referential integrity
+across every child table; **phantom attachments** (imported_file stubs with no hash/folder —
+the cause of the "Cannot change attachment linkMode" sync error, see `references/zotero-schema.md`);
+items with 2+ present PDFs, each classified text-native vs image-scan; and metadata smells
+(missing/placeholder titles, one DOI/ISBN stamped on many unrelated items). `--json out.json`
+writes findings for the reconcile step.
+
+```
+python scripts/audit_library.py --json findings.json
+python scripts/reconcile_attachments.py findings.json           # dry-run
+python scripts/reconcile_attachments.py findings.json --apply   # collapse dups + trash phantoms
+```
+
+`scripts/reconcile_attachments.py` keeps the **editable** copy (text-native, or an OCR-overlaid
+scan) per the priority rule, and **never loses an annotation**: it only collapses byte-identical
+duplicates (moving unique annotations first) or trashes zero-annotation losers. A scan that
+*carries* annotations is surfaced as an **OCR candidate** — run the ask-first `ocr_overlay` flow
+so the scan becomes the editable keeper, rather than discarding it. Two annotated different-content
+renditions are left for a human. Writes go through `write_session` (Zotero closed, auto-backup);
+trashing is reversible (`deletedItems`).
+
 ## Working principles (why this setup)
 
 These are the lessons that make the pipeline robust. Follow them; they prevent the classic failures.
@@ -162,6 +187,23 @@ while Zotero is still open, then a single `zot.write_session` — because each c
 See `references/zotero-schema.md` for tables, fieldIDs, and the `scripts/zot.py` helpers, and
 `references/runtime-optimization.md` for the batching rule.
 
+**Never create a duplicate — file the existing item into the subcollection instead.** A
+bibliography handed to you (export.bib, a reading list, a student's reference list) tells you
+*what* to add, never that it's *absent* from the library — MyLibrary is one flat pool and an item
+matching your title may already sit elsewhere, unfiled or in an unrelated collection, possibly
+with a PDF you'd otherwise fail to attach. **Before any `add_item` call, search the live library
+first** (Zotero still open, read-only, safe): `GET /items?q=<title words>&qmode=titleCreatorYear&itemType=-attachment`.
+For each hit, check its attachments (`GET /items/<key>/children`) and its current collections
+(`data.collections`, resolved via `GET /collections/<key>`) — prefer the copy that already has a
+PDF over a bare metadata stub. If a match exists: resolve its key to an itemID with
+`zot.item_id_for_key(cur, key)` inside your `write_session` and call `zot.add_to_collection(cur,
+item_id, target_collection_id)` — **do not** `add_item` a second copy. Only `add_item` when the
+search genuinely comes back empty. This was missed once (2026-07-09, Boboc thesis bibliography):
+8 of 11 references were re-created from bib metadata alone, and 7 of those already existed in
+MyLibrary — several with PDFs already attached — sitting unfiled two days prior. The fix is a
+merge (file the real item, trash the metadata-only stub, both a *content* decision — confirm with
+the user before trashing, per the rulare/conținut split above), not a rewrite of the collection.
+
 **G. Citing legislation (house style, consistent with CMOS shortened citations).** CMOS doesn't
 prescribe a format for non-US legislation and usually puts laws in notes, not the reference list;
 a separate "Legislation and case law" list is a deliberate house choice (standard socio-legal
@@ -174,6 +216,10 @@ identifiable. The list is separate, chronological, and filtered to what's actual
 
 - `scripts/build_manuscris.py` — Workflow 1 (live academic citations).
 - `scripts/build_legislation_list.py` — Workflow 2 (legislation/case-law list).
+- `scripts/audit_library.py` — read-only health check (integrity, phantom attachments,
+  duplicate PDFs classified text-native/scan, metadata smells); `--json` feeds the reconciler.
+- `scripts/reconcile_attachments.py` — collapse duplicate PDFs keeping the editable/OCR copy,
+  never losing an annotation; trashes phantom stubs that break linkMode sync.
 - `scripts/zot.py` — Zotero helper: read offline, detect user id, find items/PDFs; low-level
   direct-write helpers (`open_rw`, `get_value`, `set_field`, `touch`, `field_id`); and the batched
   write cycle (`write_session`, `add_item`, `attach_pdf`, `add_to_collection`, `find_collection`) —

@@ -197,6 +197,13 @@ def find_collection(name):
     r = _ro().execute("SELECT key, collectionID FROM collections WHERE collectionName=?", (name,)).fetchone()
     return (r[0], r[1]) if r else None
 
+def item_id_for_key(cur_or_ro, key):
+    """itemID for an existing item's API key (works with a live write_session cursor OR
+    a fresh _ro() connection). Use this to file an ALREADY-EXISTING library item into a new
+    collection with add_to_collection() — see 'no duplicates' in SKILL.md §F. None if no match."""
+    r = cur_or_ro.execute("SELECT itemID FROM items WHERE key=?", (key,)).fetchone()
+    return r[0] if r else None
+
 def attachment_path(key):
     """Full filesystem path for an attachment key: resolves both an imported
     stored copy ('storage:<file>' -> storage/<key>/<file>) and a LINKED file

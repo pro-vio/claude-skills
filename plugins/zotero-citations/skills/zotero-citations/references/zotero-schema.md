@@ -124,6 +124,79 @@ needs to stay substring-searchable (e.g. a text cache) must fold NBSP back to a 
 `references/pdf-text-cache.md` for the worked example (`pdf_text_cache.py` memoizes PDF text
 extraction this way).
 
+**Wrap a bare attachment in a proper bibliographic item — NOT automatic, check for it.**
+Dropping a PDF into a collection (drag-and-drop, or `attach_pdf` on its own) creates a top-level
+`attachment` item with a generic title and `parentItem: NULL` — Zotero/the skill does **not**
+infer a `thesis`/`journalArticle`/etc. wrapper with real metadata (author, university, date) from
+the file. This shows up recurrently in the 2026 coordination project: a student's *own* final
+thesis PDF gets synced into `2026_teze` as a bare attachment (e.g. title `Matyasi_2026`) instead of
+a proper `thesis` item — check `itemType='attachment' AND parentItem IS NULL` with a generic
+title before assuming a collection's bibliography is complete. Fix in the same `write_session` that
+would otherwise separately create-then-reparent (one cycle, not two):
+```python
+with zot.write_session("wrap-thesis") as cur:
+    tid = zot.add_item(cur, "thesis",
+        {"title": "…", "thesisType": "Lucrare de licență", "university": "…",
+         "place": "…", "date": "2026", "numPages": "…", "language": "ro",
+         "extra": "Coordonator: …"},
+        creators=[("author", "Lastname", "Firstname")], collection_id=cid)
+    att_id = cur.execute("SELECT itemID FROM items WHERE key=?", (bare_attachment_key,)).fetchone()[0]
+    cur.execute("UPDATE itemAttachments SET parentItemID=? WHERE itemID=?", (tid, att_id))
+    cur.execute("DELETE FROM collectionItems WHERE itemID=?", (att_id,))  # only the parent stays filed
+    zot.touch(cur, att_id)
+```
+Pull the metadata from the PDF's own title page (coordinator/absolvent, university, faculty,
+program, place, year) — don't guess. If the same pass also needs the text cached, call
+`pdf_text_cache.ensure_cached(cur, attachment_key, pdf_path)` inside the same session (see
+`references/pdf-text-cache.md`) — one close/reopen for both fixes.
+
+## Phantom attachments (and the "Cannot change attachment linkMode" sync error)
+
+A sync from another device can insert an `itemAttachments` row (`linkMode=0` imported_file)
+whose bytes were **never downloaded to this machine**: `storageHash` is NULL and the
+`storage/<key>/` folder does not exist. These are **not files you lost** — they are stubs.
+They are the usual cause of Zotero's sync error **"Cannot change attachment linkMode"**: a
+local imported-file stub with no bytes cannot be reconciled against the server's copy.
+
+Tell them apart from a legitimately-not-yet-downloaded file: a real pending download keeps a
+`storageHash` (sync metadata) even before the bytes arrive. **No hash AND no folder = phantom.**
+Trashing the phantom rows (they carry no local file, and — check first — no annotations) clears
+the conflict; on the next sync Zotero propagates the deletion. `scripts/audit_library.py`
+flags them (section B); `scripts/reconcile_attachments.py` trashes the annotation-free ones.
+
+```sql
+-- phantom PDF attachment rows (break linkMode sync); exclude ones that still carry annotations
+SELECT ia.itemID FROM itemAttachments ia
+WHERE ia.contentType='application/pdf' AND ia.storageHash IS NULL
+  AND ia.itemID NOT IN (SELECT itemID FROM deletedItems)
+  AND ia.itemID NOT IN (SELECT parentItemID FROM itemAnnotations);
+-- then confirm storage/<key> is absent on disk before trashing
+```
+
+**A phantom WITH annotations is often rescuable — check its own parent item first.** In the
+real case that produced this recipe, all 7 annotated phantoms sat on items that ALSO had a
+live copy of the same document as a second attachment. Before writing them off as "file on
+another device", verify the live twin is the **same rendition** empirically: for each stored
+highlight, extract text from the live PDF at the annotation's `position` rects
+(`page.get_text(clip=...)`, try both y-origins) and compare with the annotation's `text`
+(61/63 matched). If it matches, move ONLY the annotations the live copy lacks — dedup on the
+order-independent bbox signature (`reconcile_attachments.ann_sig`), since an earlier recovery
+pass may have already copied most of them — then trash the phantom. Annotations transfer
+safely here because same rendition ⇒ same coordinate space; never do this across different
+renditions.
+
+## Reconciling duplicate PDFs on one item (keep the editable/OCR copy)
+
+When an item has two+ present PDF files, keep the **text-extractable** one (text-native, or a
+scan with an OCR overlay) over an image-only scan — `ocr_overlay.detect_scan()` classifies each.
+The hard constraint: **annotations are in one rendition's coordinates and cannot move to a
+different-content file** (the rectangles would land on the wrong text). So only ever discard a
+loser that (a) is byte-identical to the keeper — move its unique annotations first, by the
+order-independent bbox signature — or (b) carries **zero** annotations. A scan that *has*
+annotations is an **OCR candidate**, not trash: overlay it (ask-first) so it becomes the
+editable keeper. `scripts/reconcile_attachments.py` encodes exactly this; it never discards an
+annotated, different-content copy.
+
 ## Gotchas
 
 - **Shutdown race:** after a graceful kill, a residual Zotero process may flush AFTER your write
