@@ -61,8 +61,14 @@ Userul a răspuns pe puncte la lista pending; aplicat totul într-un singur `wri
 |---|---|---|
 | `zotero-citations` | 1.7.0 | `9e3e4f6` — `audit_library.py` + `reconcile_attachments.py`, gotcha fantome + rețeta de recuperare a adnotărilor |
 | `scriere` | 1.3.0 | `7ca9431` — allowlist batch citire/validare docx |
-| `factsheet-teza` | — (skill personal, NU publicat în marketplace) | doar în `~/.claude/skills/factsheet-teza` |
-| `stil-proteasa` | — (skill personal, NU publicat în marketplace) | doar în `~/.claude/skills/stil-proteasa`; din 16.07 două registre pe limbă (EN Proteasa & Andreescu / RO Miroiu teorie politică) |
+| `factsheet-teza` | — (personal, NU în marketplace) | `~/.claude/skills/factsheet-teza` |
+| `stil-proteasa` | — (personal, NU în marketplace) | `~/.claude/skills/stil-proteasa` — două registre pe limbă (EN Proteasa & Andreescu / RO Miroiu teorie politică) |
+
+**Skill-urile personale au repo-ul lor, PRIVAT, chiar peste `~/.claude/skills/`** (versionează
+originalul, nu o oglindă — deci nu poate diverge). `.gitignore`-ul de acolo lasă înăuntru doar
+`stil-proteasa/` și `factsheet-teza/`; copiile de lucru ale plugin-urilor publicate rămân în
+afară, iar `_stage/` e exclus fiindcă ține materialul studentului trecut prin factsheet-teza.
+Primul commit: `370b5d2`. Repo-ul ăsta (claude-skills) rămâne strict public/marketplace.
 
 ## Sesiunea 2026-07-15 — varianta A: import oficial Zotero + consolidare adnotări (PAUZĂ AICI)
 
