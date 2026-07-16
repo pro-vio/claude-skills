@@ -60,7 +60,7 @@ Userul a răspuns pe puncte la lista pending; aplicat totul într-un singur `wri
 | Plugin | Versiune | Ultimul commit |
 |---|---|---|
 | `zotero-citations` | 1.7.0 | `9e3e4f6` — `audit_library.py` + `reconcile_attachments.py`, gotcha fantome + rețeta de recuperare a adnotărilor |
-| `scriere` | 1.3.0 | `7ca9431` — allowlist batch citire/validare docx |
+| `scriere` | 1.4.0 | reconciliere cu copia locală: `_logical_children` (w:sdt), `_TRANSPARENT`, `delete_comment`, `_IGNORABLE_IN_RUN` |
 | `factsheet-teza` | — (personal, NU în marketplace) | `~/.claude/skills/factsheet-teza` |
 | `stil-proteasa` | — (personal, NU în marketplace) | `~/.claude/skills/stil-proteasa` — două registre pe limbă (EN Proteasa & Andreescu / RO Miroiu teorie politică) |
 
@@ -269,16 +269,31 @@ Rezultat: 81 + 13 = 94 atașamente PDF din bibliotecă au acum cache de text fun
 
 **scriere**:
 - v1.2.0 (mai devreme azi, sesiune anterioară): `add_comment` (comentarii ancorate pe paragraf) + `_paras()` pe `body.iter(w:p)` (prinde paragrafe din `w:sdt`/exporturi Google Docs).
-- v1.3.0 (azi): `references/runtime-optimization.md` — allowlist batch pentru citire/validare docx (python, pandoc, pip install lxml — deja globale), regula rulare/conținut specifică (accept/reject-ul din Word e deja poarta de conținut).
+- v1.3.0: `references/runtime-optimization.md` — allowlist batch pentru citire/validare docx (python, pandoc, pip install lxml — deja globale), regula rulare/conținut specifică (accept/reject-ul din Word e deja poarta de conținut).
+- v1.4.0 (2026-07-16): **reconcilierea divergenței** semnalate mai jos — copia din marketplace
+  adusă la zi cu cea locală (557 → 666 linii). Toate diferențele erau într-un singur sens
+  (local înainte, marketplace în urmă, zero modificări proprii în marketplace), deci s-a
+  propagat fișierul întreg, nu port selectiv. Conținut: `_logical_children` (traversare
+  transparentă prin `w:sdt` — rulări îngropate în controale, exporturi Google Docs + celule
+  de tabel), `_TRANSPARENT` (`w:proofErr`/`w:bookmarkStart`/`w:bookmarkEnd` nu mai rup
+  grupurile de rulări), `delete_comment` (comentariu + intrări sidecar pe paraId + ancore),
+  `_IGNORABLE_IN_RUN` (`w:lastRenderedPageBreak` — MISS-ul invizibil). La fel: `SKILL.md`
+  (regula **G**, logica și structura sunt ale autorului) și secțiunea `lastRenderedPageBreak`
+  din `references/ooxml-track-changes.md`.
 
-## ⚠️ Lucru în desfășurare, NU al meu — nu suprascrie
+## ✅ Divergența `docx_track.py` — rezolvată (2026-07-16)
 
-`plugins/scriere/skills/scriere/scripts/docx_track.py` **diverge** între copia locală
-(`~/.claude/skills/scriere/scripts/docx_track.py`, 641 linii) și marketplace (557 linii,
-la v1.2.0). Copia locală a fost modificată azi la 20:28, de o **altă sesiune paralelă**
-(probabil coordonarea tezelor — vezi `Documents/claude_2026_coordonare/`), neterminată.
-**Nu propaga acest fișier până nu se confirmă că munca e gata** — verifică mtime din nou
-înainte de orice `cp` batch spre marketplace.
+`plugins/scriere/skills/scriere/scripts/docx_track.py` a divergeat de copia locală
+(`~/.claude/skills/scriere/scripts/docx_track.py`) cât timp o sesiune paralelă lucra la ea.
+Munca aceea e gata și **propagată** în v1.4.0; cele două copii sunt acum identice
+(666 linii; `validate_docx.py` și `runtime-optimization.md` erau deja la zi).
+
+Două lucruri de reținut pentru data viitoare:
+- **Sfârșituri de linie**: copia locală e CRLF, repo-ul impune `eol=lf` prin `.gitattributes`.
+  Diff fără `--strip-trailing-cr` arată fișierul întreg ca modificat; copierea se face
+  normalizând CRLF → LF, altfel intră CR-uri în repo.
+- Regula rămâne validă: **verifică mtime înainte de orice `cp` batch** spre marketplace
+  (`feedback_propagare_doar_fisiere_atinse.md`).
 
 ## Lecții/bug-uri reale prinse din folosire (nu din recitire de cod)
 
@@ -296,7 +311,6 @@ Toate documentate și în memoria auto (`~/.claude/projects/.../memory/`):
 
 ## Ce urmează (opțional, neprogramat)
 
-- Propagarea `docx_track.py` când cealaltă sesiune termină (verifică mtime / întreabă userul).
 - Eventual: extindere `additionalDirectories` în `~/.claude/settings.json` pentru foldere de
   proiect unde se lucrează frecvent cu scriere (discutat, respins pentru acum — userul a ales
   doar documentarea, nu extinderea directoarelor).

@@ -1,7 +1,7 @@
 {
   "name": "scriere",
   "description": "Edit a Word (.docx) manuscript as tracked changes (author \"Claude\") via a reliable lxml round-trip, so the author accepts/rejects every suggestion instead of receiving a silent rewrite. New anchored comments, threaded comment replies, footnotes, and a voice-preserving proofreading pass; pandoc validation built in.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "author": {
     "name": "Viorel Proteasa"
   }

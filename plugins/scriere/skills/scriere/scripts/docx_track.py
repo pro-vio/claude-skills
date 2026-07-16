@@ -142,23 +142,68 @@ class Docx:
             t.set(XS, "preserve")
         return r
 
-    @staticmethod
-    def _pure_text_run(r):
-        """True iff the run carries ONLY text (w:rPr + w:t) — no w:tab/w:br/w:drawing/
-        w:footnoteReference etc. The span fallback rebuilds runs as plain text, so it must
-        refuse non-pure runs: otherwise collapsing/splitting one would silently drop that
-        structural content. A refused match falls through to a visible MISS instead."""
-        return all(ch.tag in (w("rPr"), w("t")) for ch in r)
+    # Run children that carry NO text and NO authored meaning, so rebuilding a run without
+    # them changes nothing the reader or Word sees. Only w:lastRenderedPageBreak qualifies:
+    # ECMA-376 defines it as informative — Word stamps it where it last paginated and
+    # recomputes it on the next pagination, so dropping it is a no-op. Do NOT add
+    # w:noBreakHyphen / w:softHyphen (they ARE authored characters) or w:tab / w:br (layout).
+    _IGNORABLE_IN_RUN = {w("lastRenderedPageBreak")}
+
+    @classmethod
+    def _pure_text_run(cls, r):
+        """True iff the run carries only text (w:rPr + w:t) plus, optionally, ignorable
+        no-op children — no w:tab/w:br/w:drawing/w:footnoteReference etc. The span fallback
+        rebuilds runs as plain text, so it must refuse non-pure runs: otherwise collapsing/
+        splitting one would silently drop that structural content. A refused match falls
+        through to a visible MISS instead.
+
+        w:lastRenderedPageBreak is accepted (see _IGNORABLE_IN_RUN): Word puts one in the
+        run where it last paginated, which is the FIRST child of an ordinary text run, and
+        refusing those made every anchor on a page boundary MISS with no stated reason —
+        in any .docx Word had ever opened. The rebuilt fragments come from _mk_t_like, which
+        copies w:rPr only, so the break is dropped rather than duplicated into both halves
+        of a split (two page breaks would be a real, visible regression). Runs that pair the
+        break with a w:drawing are still refused — the drawing is what makes them non-pure."""
+        return all(ch.tag in (w("rPr"), w("t")) or ch.tag in cls._IGNORABLE_IN_RUN for ch in r)
 
     @staticmethod
-    def _run_groups(para):
-        """Maximal stretches of CONSECUTIVE direct w:r children. Boundaries = anything
-        else (w:ins/w:del/hyperlink/...), so a span match never reaches across tracked
-        content or a hyperlink."""
+    def _logical_children(para):
+        """`para`'s meaningful descendants with w:sdt/w:sdtContent wrappers transparently
+        unwrapped (recursively — Word/Google Docs nest a fresh w:sdt per edit, so a run can
+        end up several sdt levels deep after a few round-trips). Returns the REAL elements
+        (w:r, w:ins, w:del, w:hyperlink, w:bookmarkStart, ...) in document order; each one's
+        true parent — via `.getparent()`, NOT `para` — is what owns it structurally, since a
+        run may live inside some sdtContent rather than directly under the paragraph."""
+        out = []
+        def walk(node):
+            for ch in node:
+                if ch.tag == w("sdt"):
+                    content = ch.find(w("sdtContent"))
+                    if content is not None:
+                        walk(content)
+                else:
+                    out.append(ch)
+        walk(para)
+        return out
+
+    _TRANSPARENT = {w("proofErr"), w("bookmarkStart"), w("bookmarkEnd")}
+
+    @classmethod
+    def _run_groups(cls, para):
+        """Maximal stretches of CONSECUTIVE w:r elements (sdt-transparent — see
+        _logical_children). Boundaries = anything else (w:ins/w:del/hyperlink/...), so a
+        span match never reaches across tracked content or a hyperlink. w:proofErr /
+        w:bookmarkStart / w:bookmarkEnd carry no text and are transparent — skipped, not
+        boundaries — since Word sprinkles proofErr around every spell-checked foreign
+        word/proper noun (very common in non-English text with English citations), and
+        treating them as boundaries fragments runs into single words, breaking any needle
+        that spans more than one word next to a flagged name."""
         groups, cur = [], []
-        for ch in para:
+        for ch in cls._logical_children(para):
             if ch.tag == w("r"):
                 cur.append(ch)
+            elif ch.tag in cls._TRANSPARENT:
+                continue
             elif cur:
                 groups.append(cur); cur = []
         if cur:
@@ -214,7 +259,9 @@ class Docx:
 
     def _replace_in_run(self, old, new):
         for para in self._paras():
-            for r in para.findall(w("r")):
+            for r in self._logical_children(para):
+                if r.tag != w("r"):
+                    continue
                 txt = self._rtext(r)
                 if old in txt:
                     if not self._pure_text_run(r):
@@ -226,8 +273,8 @@ class Docx:
                     repl.append(self._del(old))
                     if new: repl.append(self._ins(new))
                     if suf: repl.append(self._mk_t_like(r, suf))
-                    idx = list(para).index(r); para.remove(r)
-                    for k, e in enumerate(repl): para.insert(idx + k, e)
+                    parent = r.getparent(); idx = list(parent).index(r); parent.remove(r)
+                    for k, e in enumerate(repl): parent.insert(idx + k, e)
                     return True
         return False
 
@@ -246,10 +293,15 @@ class Docx:
                 repl.append(self._del(real))
                 if new: repl.append(self._ins(new))
                 if suf: repl.append(self._mk_t_like(runs[rb], suf))
-                idx = list(para).index(runs[ra])
+                # Runs in a group can each sit under a DIFFERENT real parent (sdt-transparent
+                # grouping — see _logical_children): splice new nodes in at the first run's
+                # own parent/position, then remove every original run from ITS OWN parent.
+                # Any sdtContent left empty by this is harmless (Word tolerates it).
+                first_parent = runs[ra].getparent()
+                idx = list(first_parent).index(runs[ra])
                 for r in runs[ra:rb + 1]:
-                    para.remove(r)
-                for k, e in enumerate(repl): para.insert(idx + k, e)
+                    p = r.getparent(); p.remove(r)
+                for k, e in enumerate(repl): first_parent.insert(idx + k, e)
                 return True
         return False
 
@@ -268,7 +320,9 @@ class Docx:
 
     def _insert_after_in_run(self, prefix, text):
         for para in self._paras():
-            for r in para.findall(w("r")):
+            for r in self._logical_children(para):
+                if r.tag != w("r"):
+                    continue
                 txt = self._rtext(r)
                 if prefix in txt:
                     if not self._pure_text_run(r):
@@ -277,8 +331,8 @@ class Docx:
                     i = txt.find(prefix) + len(prefix); pre, suf = txt[:i], txt[i:]
                     repl = [self._mk_t_like(r, pre), self._ins(text)]
                     if suf: repl.append(self._mk_t_like(r, suf))
-                    idx = list(para).index(r); para.remove(r)
-                    for k, e in enumerate(repl): para.insert(idx + k, e)
+                    parent = r.getparent(); idx = list(parent).index(r); parent.remove(r)
+                    for k, e in enumerate(repl): parent.insert(idx + k, e)
                     return True
         return False
 
@@ -298,8 +352,9 @@ class Docx:
                 if head: repl.append(self._mk_t_like(runs[rb], head))
                 repl.append(self._ins(text))
                 if tail: repl.append(self._mk_t_like(runs[rb], tail))
-                idx = list(para).index(runs[rb]); para.remove(runs[rb])
-                for k, e in enumerate(repl): para.insert(idx + k, e)
+                parent = runs[rb].getparent()
+                idx = list(parent).index(runs[rb]); parent.remove(runs[rb])
+                for k, e in enumerate(repl): parent.insert(idx + k, e)
                 return True
         return False
 
@@ -307,7 +362,7 @@ class Docx:
         """Insert a NEW tracked insertion right after the USER's w:ins run containing `contains`.
         Use when your anchor sits inside text the user already inserted (tracked), not a plain run."""
         for para in self._paras():
-            for e in para.findall(w("ins")):
+            for e in para.iter(w("ins")):   # iter, not findall: w:ins can nest in w:sdt
                 if contains in "".join(t.text or "" for t in e.iter(w("t"))):
                     par = e.getparent(); par.insert(list(par).index(e) + 1, self._ins(text))
                     self.log.append(f"OK   {label or 'insert_after_ins'}"); return True
@@ -316,7 +371,7 @@ class Docx:
     def fix_in_ins(self, old, new, label=""):
         """Correct a typo INSIDE the user's own w:ins, in place (no nested tracking needed)."""
         for para in self._paras():
-            for e in para.findall(w("ins")):
+            for e in para.iter(w("ins")):   # iter, not findall: w:ins can nest in w:sdt
                 for t in e.iter(w("t")):
                     if t.text and old in t.text:
                         t.text = t.text.replace(old, new)
@@ -347,9 +402,12 @@ class Docx:
         self.log.append(f"MISS {label or 'set_heading'}  («{needle[:40]}»)"); return False
 
     # ---------- new anchored comments ----------
-    def _ensure_comment_parts(self):
+    def _ensure_comment_parts(self, threaded=False):
         """Create word/comments.xml + word/commentsExtended.xml (with content-type
-        overrides and document rels) when the document has no comments yet."""
+        overrides and document rels) when the document has no comments yet. Pass
+        threaded=True (reply_to_comment does) to also bootstrap word/commentsIds.xml +
+        word/people.xml — required for threaded replies, not for top-level comments,
+        so add_comment on its own leaves them out (Word opens fine without them)."""
         wdir = self.root / "word"
         NSMAP = {"w": W, "w14": W14, "w15": W15}
         made = []
@@ -363,6 +421,18 @@ class Docx:
             made.append(("commentsExtended.xml",
                          "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtended+xml",
                          "http://schemas.microsoft.com/office/2011/relationships/commentsExtended"))
+        if threaded:
+            if not (wdir / "commentsIds.xml").exists() and "commentsIds.xml" not in self._trees:
+                self._trees["commentsIds.xml"] = etree.ElementTree(
+                    etree.Element(w16("commentsIds"), nsmap={"w16cid": W16}))
+                made.append(("commentsIds.xml",
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml",
+                             "http://schemas.microsoft.com/office/2016/09/relationships/commentsIds"))
+            if not (wdir / "people.xml").exists() and "people.xml" not in self._trees:
+                self._trees["people.xml"] = etree.ElementTree(etree.Element(w15("people"), nsmap={"w15": W15}))
+                made.append(("people.xml",
+                             "application/vnd.openxmlformats-officedocument.wordprocessingml.people+xml",
+                             "http://schemas.microsoft.com/office/2011/relationships/people"))
         if not made:
             return
         CT = "http://schemas.openxmlformats.org/package/2006/content-types"
@@ -443,10 +513,49 @@ class Docx:
 
         self.log.append(f"OK   {label or 'comment'} (id {cid})"); return True
 
+    def delete_comment(self, comment_id, label=""):
+        """Remove a comment entirely: the w:comment in comments.xml, its sidecar entries in
+        commentsExtended / commentsIds / commentsExtensible (matched by paraId, namespace-
+        agnostic), and its body anchors (commentRangeStart/End + the commentReference run).
+        Use to clear a resolved review comment. Replies are not auto-removed — delete them
+        first if the comment is a thread parent."""
+        cid = str(comment_id)
+        cr = self._tree("comments.xml").getroot()
+        target = None
+        for c in cr.findall(w("comment")):
+            if c.get(w("id")) == cid:
+                target = c; break
+        if target is None:
+            self.log.append(f"MISS {label or 'delete_comment'}  (#{cid} not found)"); return False
+        para_ids = {p.get(w14("paraId")) for p in target.findall(w("p")) if p.get(w14("paraId"))}
+        cr.remove(target)
+
+        # sidecar parts keyed by paraId (attribute localname == 'paraId', any namespace)
+        for fn in ("commentsExtended.xml", "commentsIds.xml", "commentsExtensible.xml"):
+            if not (self.root / "word" / fn).exists():
+                continue
+            root = self._tree(fn).getroot()
+            for el in list(root):
+                pid = next((v for k, v in el.attrib.items()
+                            if etree.QName(k).localname == "paraId"), None)
+                if pid in para_ids:
+                    root.remove(el)
+
+        # body anchors
+        for tag in ("commentRangeStart", "commentRangeEnd"):
+            for e in list(self.body.iter(w(tag))):
+                if e.get(w("id")) == cid:
+                    e.getparent().remove(e)
+        for r in list(self.body.iter(w("r"))):
+            if any(cf.get(w("id")) == cid for cf in r.findall(w("commentReference"))):
+                r.getparent().remove(r)
+        self.log.append(f"OK   {label or 'delete_comment'} (#{cid})"); return True
+
     # ---------- threaded comment replies ----------
     def reply_to_comment(self, parent_id, text, label=""):
         """Add a threaded reply (author = self.author) under existing comment `parent_id`.
         Touches comments.xml, commentsExtended.xml, commentsIds.xml, people.xml + the body anchor."""
+        self._ensure_comment_parts(threaded=True)
         cr = self._tree("comments.xml").getroot()
         er = self._tree("commentsExtended.xml").getroot()
         ir = self._tree("commentsIds.xml").getroot()

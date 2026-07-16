@@ -152,6 +152,30 @@ and register belong to the author; uncertainty resolves toward leaving the text 
 keep change ids unique, repack to a fresh path (Windows locks working dirs), and **always validate**
 with pandoc before returning the file.
 
+**G. Logic and structure belong to the author; you only have probabilities.** The author's own
+decisions — argument, structure, wording they dictate as canonical, the shape of a section — are
+not yours to complete, polish, or reorganize, even slightly, even if it reads as an improvement.
+Model output is inherently probabilistic completion; exploration and verification tasks (finding a
+source, checking a claim, summarizing what's already in the document) are a legitimate use of that
+— but authored logical/structural content is not, because there the author's exact intent is the
+only correct answer, and a probabilistic "close enough" is a silent corruption of it, not a
+suggestion. When told to insert "what I said" / a dictated structure: **copy the literal string
+from the conversation, never retype it from memory of what it meant.** If no exact string exists
+yet (the author only said it verbally, hasn't written it down), stop and ask them to write the
+exact wording — do not compose it yourself, even to fill an obviously incomplete-sounding sentence.
+Before writing anything presented as the author's own words, check each phrase against the
+conversation: is this literally there, or did I complete it? A "sounds like what they meant" is not
+a yes.
+
+This was missed three times in one session (2026-07-09, Boboc thesis): a tracked-insert summary of
+the author's own dictated design was paraphrased and restructured instead of quoted; a second
+insertion (after explicit approval) was still composed rather than copied verbatim, regrouping the
+content under the wrong heading; and a sentence the author left as "the classic methods are
+flawed" was silently completed with "by subjectivity and the Hawthorne effect" — pulled from the
+*student's own thesis text*, not from anything the author had said, blending a third source into
+what was presented as the author's exact dictation. All three read as harmless improvements in the
+moment; all three were content the author never approved, sitting in a graded student's thesis.
+
 ## Bundled resources
 
 - `scripts/docx_track.py` — the reusable `Docx` helper: `unpack`/`repack`/`save`; tracked
