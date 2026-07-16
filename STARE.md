@@ -59,9 +59,10 @@ Userul a răspuns pe puncte la lista pending; aplicat totul într-un singur `wri
 
 | Plugin | Versiune | Ultimul commit |
 |---|---|---|
-| `zotero-citations` | 1.6.6 | `b0434cf` — `prefetch_collection.py`, cache PDF în lot pe o colecție |
+| `zotero-citations` | 1.7.0 | `9e3e4f6` — `audit_library.py` + `reconcile_attachments.py`, gotcha fantome + rețeta de recuperare a adnotărilor |
 | `scriere` | 1.3.0 | `7ca9431` — allowlist batch citire/validare docx |
 | `factsheet-teza` | — (skill personal, NU publicat în marketplace) | doar în `~/.claude/skills/factsheet-teza` |
+| `stil-proteasa` | — (skill personal, NU publicat în marketplace) | doar în `~/.claude/skills/stil-proteasa`; din 16.07 două registre pe limbă (EN Proteasa & Andreescu / RO Miroiu teorie politică) |
 
 ## Sesiunea 2026-07-15 — varianta A: import oficial Zotero + consolidare adnotări (PAUZĂ AICI)
 
