@@ -3,3 +3,11 @@ __pycache__/
 *.bak
 .DS_Store
 Thumbs.db
+
+# Date personale — NU se publică (repo public)
+library.bib
+mendeley-zotero-migration/extract/
+mendeley-zotero-migration/mendeley-indexeddb-raw/
+
+# Setări locale de mașină
+.claude/
