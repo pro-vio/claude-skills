@@ -1,6 +1,47 @@
 # STARE — claude-skills (marketplace pro-vio/claude-skills)
 
-*Ultima actualizare: 2026-07-08, sesiunea "chat dedicat skill-urilor" (continuare).*
+*Ultima actualizare: 2026-07-16 (a doua sesiune) — planul B+A executat; rămân C/OCR/rivali.*
+
+## HANDOFF 2026-07-16 — de unde continuă chatul nou
+
+**Obiectiv curent:** lucrăm cu skill-ul `zotero-citations` și îl îmbunătățim. Task concret care-l exersează: iteme cu 2+ PDF pe My Library.
+
+### EXECUTAT în sesiunea a doua (16.07, backup `zotero.sqlite.pre-split-glued-items.bak`)
+
+Planul B+A aplicat într-un singur `write_session`, verificat cu `audit_library.py` după (0 orfane la toate verificările):
+- **B:** cei 4 loseri redundanți (atașamente 671, 690, 962, 887 — 0 adnotări fiecare) la COȘ.
+- **A:** itemul 10313 (titlu-gunoi japonez, autor fictiv „Bandile") SPART în 3 teze cu metadate citite din PDF, apoi la coș:
+  - 14809 Walstrum, *Essays on Human Capital Investment*, PhD, Univ. of Illinois at Chicago, 2015 (att 10406, 109p);
+  - 14810 Gaulke, *Essays on Enrollment and Persistence in Higher Education*, PhD, Univ. of Wisconsin–Madison, 2015 (att 10314, 138p, ProQuest 3718047);
+  - 14811 Gonzalez, *Three Essays on the Economics of Education*, PhD, Columbia, 2015 (att 10496, 200p).
+  - capitolul din 6047 → bookSection nou 14812: Curaj, Deca & Hâj, *Romanian Higher Education in 2009–2013…*, pp. 1–24, DOI 10.1007/978-3-319-08054-3_1 (att 6168); cartea 6047 păstrează att 6048 (3 adnotări).
+  - Itemele noi filate în colecțiile părinților vechi (212 IV_article, 131 Mendeley); niciun duplicat pre-existent (verificat; „Three Essays on the Economics of *Higher* Education" = teza lui Xia, alt document).
+
+**Iteme cu 2+ PDF rămase: 9** (16 − cele rezolvate), toate decizii deliberate încă deschise (findings noi în scratchpad sesiunea curentă, `findings_after.json`):
+
+**Skill ÎMBUNĂTĂȚIT (Pista B, gata + validat pe biblioteca reală):**
+- `scripts/audit_library.py` — health-check read-only (integritate, **fantome linkMode**, PDF-uri duble clasificate text/scan, metadate). `--json findings.json` alimentează reconcilierea.
+- `scripts/reconcile_attachments.py` — colapsare cu prioritate editabil/OCR, NU pierde adnotări; garda „paginație divergentă (>1p) = alt document"; scan adnotat → candidat OCR (nu la coș); fantome-cu-adnotări păstrate.
+- `references/zotero-schema.md` — gotcha „Phantom attachments" (imported_file fără hash/folder = cauza „Cannot change attachment linkMode") + rețeta reconciliere.
+- `SKILL.md` — secțiune „library audit & duplicate-attachment reconciliation" + 2 scripturi în resurse.
+- Bug reparat în reconcile: raporta len(phantoms) nu numărul real trimis la coș.
+
+**APLICAT pe bibliotecă (Zotero închis, backup `zotero.sqlite.pre-reconcile-attachments.bak`):**
+159 fantome + 15 copii redundante (aceeași paginație, 0 adnotări) → la COȘ. 7 fantome PĂSTRATE
+(au adnotări sincronizate, fișier pe alt device — lasă-le să se descarce). Integritate 0 orfane.
+**DE TESTAT DE USER:** redeschide Zotero + sync → eroarea „Cannot change attachment linkMode" ar trebui dispărută.
+
+- **C. Păstrează AMBELE (nu-s duplicate)** — lăsate așa: 122 HCL 266/2016 (corp 4p + anexă 2p); 553 Ordin 6560/2012 (65p vs 126p mai completă); 558 Ordin 6129/2016 (61p vs 98p); 341 Metodologia (2 scanuri 29/13p); 7722 Charter UVT (2 scanuri 90/16p). La 553/558 opțional: păstrează doar versiunea mai completă.
+- *Scanuri adnotate (candidat OCR, ask-first `ocr_overlay`):* item **21** Public Goods (scan att 6532, 15 adnotări) vs keeper text 23; item **6110** (scan 11348, 3 adn) vs keeper 6111. OCR pe scan → devine keeper editabil+adnotat.
+- *Rivali text adnotați (decizie umană):* item **92** Legea 153/2011 (att 278 1adn / keeper 93 12adn); item **507** Scientific Management (att 13372 6adn / keeper 12409 5adn).
+
+**Pasul următor propus:** OCR pe cele 2 scanuri adnotate (ask-first, pe rând), apoi decizia userului la cei 2 rivali; C rămâne cum e.
+
+**Alte resturi vechi (neschimbate):** 6 PDF adnotate chiar absente (64 adn, listate — Granovetter cel mai valoros); colecțiile importului sub `Imported 7/15/2026...` (de promovat la rădăcină?); itemul Denning 10397 tipat journalArticle deși e teză; Mendeley încă instalat. Scripturi durabile în `Documents/claude-skills/mendeley-zotero-migration/` + skill-ul actualizat în `~/.claude/skills/zotero-citations/`.
+
+---
+
+*Sesiune anterioară: 2026-07-15, "migrare Mendeley→Zotero" — varianta A, import oficial.*
 
 ## Versiuni curente
 
@@ -9,6 +50,142 @@
 | `zotero-citations` | 1.6.6 | `b0434cf` — `prefetch_collection.py`, cache PDF în lot pe o colecție |
 | `scriere` | 1.3.0 | `7ca9431` — allowlist batch citire/validare docx |
 | `factsheet-teza` | — (skill personal, NU publicat în marketplace) | doar în `~/.claude/skills/factsheet-teza` |
+
+## Sesiunea 2026-07-15 — varianta A: import oficial Zotero + consolidare adnotări (PAUZĂ AICI)
+
+Continuare directă a sesiunii 07-14. Userul a întrebat dacă nu cumva are toate PDF-urile local
+(credea că setase Mendeley „download all"). **Verificat: nu.** Doar 373–423 fizic în `userfiles`
+(1,19 GB), exact cele deschise vreodată (MRM descarcă lazy, la deschidere; date 2023→2026);
+**1832 existau doar în cloud**. Fără vechi Mendeley Desktop, fără drive J:.
+
+**Varianta 2 (token API din aplicație) — ABANDONATĂ, propunere proastă a mea.** Extragerea tokenului
+de sesiune din token store-ul aplicației = extragere de credențiale; stratul de siguranță a blocat-o,
+corect. Nu se ocolește cu alt tool. Documentat ca lecție.
+
+**Varianta A aleasă și executată de user:** importatorul oficial Zotero (File → Import → Mendeley
+online), userul s-a autentificat singur, a pus totul într-o colecție nouă. **NU s-a restaurat backup**
+(importul pornise deja) — în schimb am șters chirurgical migrarea manuală, ceea ce a mers fiindcă
+itemele mele și cele importate **nu se suprapuneau deloc** (0 comune).
+
+Ce a adus importul (~2h, DB 115MB→338MB): **2197 iteme, 1893 PDF-uri din cloud, 3802 adnotări**,
+113 colecții sub `Imported 7/15/2026` (ierarhia Mendeley completă).
+
+1. **Șters migrarea manuală** (confirmat explicit de user, după ce clasificatorul a blocat prima
+   încercare — scopul se lărgise față de „dă-i drumul"-ul inițial): 1817 iteme, 112 colecții,
+   108 atașamente + foldere storage, 168 note, **1725 adnotări** (identificate pe `dateAdded`
+   2026-07-14; cohorte verificate: 140 vechi ale userului = 45 proprii + 95 „Claude" din sesiuni
+   anterioare / 1725 ale mele / 3802 ale importului). Rezultat: 0 rânduri orfane.
+2. **Adnotările studenților — importul NU le aduce.** Doar pe ale userului (3505/3505). Cele 536 ale
+   studenților lipseau integral. Extras `groupProfiles` → `profile_names.json` (32 profiluri → nume
+   reale: Boboc, Borodachi, Pavlovschi, Ofiteru, Grădinaru, Deaconu, Zegoicea...). Inserate **493
+   adnotări** (460 ale studenților + 33 ale userului ratate de import) cu `authorName` = numele
+   studentului. **User a verificat vizual: numele apare.** Total adnotări acum: **4435** (555 atribuite).
+3. **Două convenții ale importatorului, găsite prin dry-run (altfel dublam 2497 de adnotări):**
+   - **caseta notei (type 2) e CENTRATĂ pe punctul Mendeley** `[x-11,y-11,x+11,y+11]`, nu ancorată cu
+     colțul (măsurat: dx=dy=+11 pe 211/215 note). Migrarea mea de ieri avea notele decalate cu 11pt.
+   - **highlight-urile multi-linie au casetele în altă ORDINE** decât `positions` din Mendeley →
+     semnătura de dedup trebuie pe **bounding box peste toate casetele**, nu pe `rects[0]`.
+   - importatorul păstrează **culoarea literală Mendeley** (`#faf4d1`), nu paleta Zotero (`#ffd400`).
+   Convergență dry-run: 2960 → 1294 → 493. `annconv.py` reparat.
+4. Legătura adnotare↔PDF se face pe **SHA1** (Mendeley `filehash` e sha1, nu md5) al conținutului.
+
+**Stare Zotero acum: 2658 iteme (461 vechi ale userului + 2197 import), 127 colecții, 2476 atașamente
+PDF, 4435 adnotări, 0 orfane.** Backup-uri `zotero.sqlite.pre-*.bak` pentru fiecare pas.
+
+5. **DEDUP executat (confirmat de user).** Master = itemul VECHI al userului când grupul are unul —
+   citările din Word/LO rețin cheia (userul scrie tot cu Zotero); copiile din import nu-s citate de
+   nimic. Altfel master = copia din import cea mai bogată. **237 grupuri, 286 iteme contopite
+   (2658 → 2372)**; mutate pe masteri 248 PDF-uri, 18 note, 394 filări de colecții, 476 taguri.
+   Apoi **265 atașamente PDF duplicate** (conținut identic, în același item) eliminate, păstrat cel
+   cu adnotări (216 iteme afectate, 4 adnotări mutate).
+   - **⚠️ GARDA CARE A SALVAT TOTUL — un identificator SINGUR nu grupează niciodată.** Prima versiune
+     (grupare pe DOI) a produs un grup de **18 cărți diferite** (Kahneman + Acemoglu + „Psihologia
+     poporului român"...) din cauza DOI-ului fals `10.1017/CBO9781107415324.004`, pe care Mendeley îl
+     lipește pe zeci de înregistrări fără legătură. Fix: cheia cere ȘI titlul; unde titlul e singura
+     dovadă, cere ȘI autorul („Selective Incentives" există și de della Porta, și de Oliver). Plus o
+     gardă de compatibilitate a autorului (egal sau substring — tolerează „European Commission" vs
+     „European Commission, Directorate-General...") → **14 grupuri lăsate neatinse pentru verificare
+     manuală de user** (unele par capitole unde un record are editorul cărții (Curaj) iar altul autorul
+     capitolului (Proteasa, Miroiu, Vlăsceanu) — de decis de user, nu de ghicit).
+6. **Reparate două probleme prinse la verificare:** (a) **38 din cele 461 iteme vechi au dispărut** —
+   biblioteca veche avea duplicate interne, deci un „original" a devenit perdant; adăugate **286
+   relații `dc:replaces`** (`itemRelations` predicateID=1, object=`http://zotero.org/users/1055731/items/<KEY>`,
+   chei luate din backup) ca citările vechi să se redirecționeze spre master — exact ce face merge-ul
+   nativ Zotero; (b) 13 note rămase orfane când atașamentul-părinte a fost colapsat → reatașate la item.
+7. **Recuperare 316 adnotări în plus:** cele 42 PDF-uri „neaduse de import" erau în mare parte o iluzie —
+   `filehash` din Mendeley e sha1-ul copiei din **cloud**, iar copia locală/importată are alt sha1
+   (36/42). Remapate pe sha1-ul REAL → +316 adnotări (128 Irina Pavel, 111 Ofiteru, 35 Boboc...).
+
+8. **Cele 14 grupuri „cu autori diferiți" — verificate una câte una: 11 erau duplicate reale.**
+   Cauza falsului pozitiv era a mea: garda compara **primul creator**, care la un capitol de carte e
+   adesea **editorul volumului**, nu autorul capitolului („Curaj vs Proteasa", „della Porta vs Oliver"
+   — della Porta e editorul enciclopediei). Contopite 13 iteme (master = itemul vechi), +22 adnotări
+   pe *IAD Framework*, +18 pe *Unraveled Practices*. **Lasate 3:** book-vs-chapter (9793/9797),
+   2 înregistrări-placeholder, și Rauhvargers-vs-Stergiou (DOI mis-atribuit).
+9. **„Șterge cele două înregistrări-gunoi" — una NU era gunoi.** Regula „uită-te la țintă înainte de
+   ștergere" a salvat conținut: 10387 chiar era copie redundantă (articolul Stinebrickner exista corect
+   pe 10284) → șters; **10393 ascundea teza lui Edward C. See, 175 pagini**, unicat în bibliotecă →
+   reparat, nu șters. Iar „autorul greșit de la 10397" pe care îl semnalasem **nu exista**: itemul
+   Denning era corect (abstractul lui despre taxele din Texas), **fișierul** era străin (teza lui Xing
+   Xia) → item nou pentru Xia, Denning neatins. Corectat și autorul inversat pe 1142 (Coșciug, Anatolie).
+10. **AUDIT COMPLET + reparații** (`audit_full.py`): 10+4 relații `dc:replaces` orfane (apar când un
+    item e master într-un grup și perdant în altul → **redirecționate către masterul final**, nu șterse,
+    ca să nu se rupă lanțul de citări); **DOI-ul fals Mendeley scos de pe 16 iteme + ISBN-ul fals
+    `978-85-7811-079-6` de pe 16** (un identificator care apare pe 12 lucrări diferite nu e al niciuneia
+    — ar fi produs DOI greșit în citări); încă **2 titluri-placeholder care ascundeau documente reale**
+    reparate (9106 = *The Politics of Ethnicity in Central Europe*, ed. Karl Cordell, Macmillan 2000;
+    10801 = *Better Regulation "Toolbox"*, Comisia Europeană 2017, 540 pag.); **85 grupuri same-PDF
+    contopite** (87 iteme) din 124 — restul de 39 semnalate userului, nu atinse (fișier identic ≠
+    duplicat: poate fi atașament greșit, ca la Denning/Xia).
+
+**STARE FINALĂ: 2272 iteme, 127 colecții, 2110 atașamente PDF, 4741 adnotări (847 atribuite nominal),
+387 dc:replaces, 0 orfane la toate cele 15 verificări, 0 fișiere lipsă de pe disc, 0 titluri-placeholder,
+0 DOI-uri false.** Backup `zotero.sqlite.pre-*.bak` per pas. Artefacte: `mendeley-zotero-migration/`
+(90 scripturi).
+
+**RĂMÂNE (mic, toate raportate userului):**
+- **6 PDF-uri adnotate chiar absente** (fără copie locală, neaduse de import) → 64 adnotări. Cel mai
+  valoros: **Granovetter (1973), The Strength of Weak Ties** (25 adnotări, 13 ale userului).
+- **39 grupuri same-PDF** cu titlu/autor incompatibile — de decis de user.
+- **124 iteme fără autor** (multe legitime: rapoarte, legislație).
+- 78 iteme în coșul Zotero; colecțiile importului sub `Imported 7/15/2026...` (de promovat la rădăcină?);
+  itemul Denning (10397) tipat `journalArticle` deși e teză; Mendeley încă instalat.
+
+## Sesiunea 2026-07-14 — migrare Mendeley→Zotero (faza 1, ÎNLOCUITĂ de importul oficial)
+
+Cerere: tranziție totală de pe Mendeley pe Zotero, inclusiv DB, cu păstrarea adnotărilor. Sursa NU e
+cloud-ul: baza locală Mendeley Reference Manager e o replică IndexedDB completă
+(`%APPDATA%\Mendeley Reference Manager\IndexedDB\file__0.indexeddb.leveldb` + `.blob`; PDF-uri în
+`userfiles\<fileId>.pdf`). Extras cu `dfindexeddb`+`cramjam` (shim-uri snappy/zstd) + `blink.V8ScriptValueDecoder`
+pe blob-uri externe → `extract/mendeley_local.json`. Detalii metodă + inventar în memoria auto
+`project_mendeley_zotero_migrare.md`.
+
+**Executat integral (fazele 1–5 + curățenii), toate prin `zot.write_session` (backup automat, Zotero
+închis), verificat pe DB după fiecare pas:**
+1. Reconciliere: 2584 docs active (excluse 241 din trash) vs 461 iteme Zotero → 378 potrivite
+   (DOI/titlu+an/titlu/ISBN), 1929 iteme NOI unice (după colapsarea a 277 duplicate interne Mendeley).
+2. 112 foldere Mendeley recreate ca **colecții** cu ierarhia întreagă (faza 2); helper `add_collection`.
+3. 1929 **iteme** create cu mapare tip+câmp Mendeley→Zotero (`build_spec.py` + `valid_fields.json`),
+   + note de lectură + taguri, filate în colecții (faza 3).
+4. 113 **PDF-uri locale** atașate (91 iteme noi + 19 potrivite fără PDF; conservator — nu atașez dacă
+   itemul are deja un PDF), titluri lizibile din `file_name` (faza 4/4b).
+5. **Adnotări native**: 1554 (faza5) + 171 union din duplicate interne (faza5b) = 1725 pe 155 PDF-uri
+   locale (byte-identice md5 cu storage Zotero). Highlight → text extras din PDF pe coordonatele Mendeley
+   (PyMuPDF; Mendeley bottom-left → Zotero), sticky → notă cu comentariul. `annconv.py`.
+   **User a verificat vizual: highlights cad corect pe text.** 11 highlight fără text = PDF scanate.
+6. **Grupuri Mendeley excluse** (cerință user): 3 grupuri „coordonare_2023-24/2025/2026" (owner, cu
+   studenți). Colecțiile de grup NU fuseseră create. 112 iteme PUR de grup ȘTERSE hard (117 rânduri +
+   5 fișiere storage); păstrate 128 mixte (au și membru personal) + 129 potrivite pe iteme personale.
+
+Stare atinsă atunci: 2278 iteme, 126 colecții, 691 atașamente PDF, 1865 adnotări, 330 note, 0 orfane.
+**⚠️ ȘTEARSĂ INTEGRAL pe 07-15** (vezi secțiunea de mai sus) — limitată la cele 373 PDF-uri locale, deci
+înlocuită de importul oficial Zotero care aduce tot din cloud. Nu o reface; codul rămâne util ca
+referință (mapare tip+câmp `build_spec.py`, `migrate.py`), iar `annconv.py` a fost reparat de atunci.
+
+**Decizii user pe parcurs (ÎNCĂ VALABILE):** fără trash; **faza 6 (pin citekeys BBT) ABANDONATĂ**
+(userul scrie tot cu Zotero direct, nu are manuscrise pe cheile Mendeley — NU re-propune);
+grupurile pot rămâne cât timp nu dublează; adnotările userului ȘI ale studenților se păstrează ambele,
+**cu condiția să fie diferențiate** (rezolvat prin `authorName`).
 
 ## Sesiunea 2026-07-08 (recap)
 
